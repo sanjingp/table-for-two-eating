@@ -1,5 +1,5 @@
 // WebSocket client. Optional: if the server can't be reached the game keeps working solo.
-import { sanitizeAppearance, ANIMS, EMOTES, LINES, isValidRoom } from './schema.js';
+import { sanitizeAppearance, ANIMS, EMOTES, LINES, isValidRoom, WORLD_LIMIT } from './schema.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,16}$/.test(v);
@@ -128,7 +128,8 @@ export class Net {
 
   cleanState(s) {
     if (!s || !isNum(s.x) || !isNum(s.z) || !isNum(s.ry) || !ANIMS.includes(s.an)) return null;
-    return { x: s.x, z: s.z, ry: s.ry, an: s.an };
+    const lim = (v) => Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, v));
+    return { x: lim(s.x), z: lim(s.z), ry: lim(s.ry), an: s.an };
   }
 
   send(obj) {

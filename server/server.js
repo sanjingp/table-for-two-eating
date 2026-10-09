@@ -333,6 +333,7 @@ server.on('upgrade', (req, socket, head) => {
   const ip = clientIp(req);
   let bucket = ipConnectRate.get(ip);
   if (!bucket) {
+    if (ipConnectRate.size >= 20_000) return rejectUpgrade(socket, 503, 'Service Unavailable');
     bucket = new TokenBucket(LIMITS.connectsPerIpPerMinute, LIMITS.connectsPerIpPerMinute / 60);
     ipConnectRate.set(ip, bucket);
   }

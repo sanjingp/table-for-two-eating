@@ -292,6 +292,78 @@ export function stripeTexture(a, b, n = 6) {
   });
 }
 
+/**
+ * Merge static, untextured meshes under `root` into one mesh per material.
+ * Turns hundreds of draw calls into a few dozen — important for iPad.
+ * shallow: only direct children (so animated sub-groups keep moving).
+ * dispose: free the source geometries (off for shared/cached geometry).
+ */
+export function mergeStatic(root, { shallow = false, dispose = true } = {}) {
+  root.updateMatrixWorld(true);
+  const buckets = new Map();
+  const victims = [];
+  const consider = (o) => {
+    if (!o.isMesh || o.userData.dynamic || o.material.map || o.material.transparent) return;
+    let p = o.parent;
+    while (p && p !== root) {
+      if (p.userData.dynamic) return;
+      p = p.parent;
+    }
+    let list = buckets.get(o.material);
+    if (!list) buckets.set(o.material, (list = []));
+    list.push(o);
+    victims.push(o);
+  };
+  if (shallow) root.children.forEach(consider);
+  else root.traverse(consider);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const tmp = new THREE.Matrix4();
+  for (const [material, meshes] of buckets) {
+    let vCount = 0;
+    let iCount = 0;
+    for (const m of meshes) {
+      vCount += m.geometry.attributes.position.count;
+      iCount += m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count;
+    }
+    const pos = new Float32Array(vCount * 3);
+    const nor = new Float32Array(vCount * 3);
+    const idx = vCount > 65535 ? new Uint32Array(iCount) : new Uint16Array(iCount);
+    let vo = 0;
+    let io = 0;
+    const v = new THREE.Vector3();
+    const nm = new THREE.Matrix3();
+    for (const m of meshes) {
+      const g = m.geometry;
+      tmp.multiplyMatrices(inv, m.matrixWorld);
+      nm.getNormalMatrix(tmp);
+      const P = g.attributes.position;
+      const N = g.attributes.normal;
+      for (let i = 0; i < P.count; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(tmp);
+        pos.set([v.x, v.y, v.z], (vo + i) * 3);
+        v.fromBufferAttribute(N, i).applyMatrix3(nm).normalize();
+        nor.set([v.x, v.y, v.z], (vo + i) * 3);
+      }
+      if (g.index) for (let i = 0; i < g.index.count; i++) idx[io++] = g.index.getX(i) + vo;
+      else for (let i = 0; i < P.count; i++) idx[io++] = i + vo;
+      vo += P.count;
+    }
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    merged.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    merged.setIndex(new THREE.BufferAttribute(idx, 1));
+    merged.computeBoundingSphere();
+    const mesh = new THREE.Mesh(merged, material);
+    mesh.matrixAutoUpdate = false;
+    mesh.userData.merged = true;
+    root.add(mesh);
+  }
+  for (const m of victims) {
+    m.parent.remove(m);
+    if (dispose) m.geometry.dispose();
+  }
+}
+
 // ------------------------------------------------------------------ materials
 const matCache = new Map();
 /** Shared Lambert material per color — cheap on iPad and lets us merge static meshes. */

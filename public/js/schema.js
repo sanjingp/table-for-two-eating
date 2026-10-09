@@ -119,7 +119,7 @@ export function skinColor(t) {
   return '#' + ((1 << 24) | (mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).slice(1);
 }
 
-// Room codes look like "pink-taco-4821".
+// Room codes look like "pink-taco-k7q2m9".
 export const ROOM_RE = /^[a-z0-9]+(?:-[a-z0-9]+){0,4}$/;
 export const isValidRoom = (r) => typeof r === 'string' && r.length >= 3 && r.length <= 40 && ROOM_RE.test(r);
 

@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 import { skinColor } from './schema.js';
 import { EMOTE_INFO } from './data.js';
-import { blobShadowTexture, emojiTexture, labelTexture, makeSprite, speechTexture, smooth01, lerp, damp } from './util.js';
+import { blobShadowTexture, emojiTexture, labelTexture, makeSprite, speechTexture, smooth01, lerp, damp, mergeStatic } from './util.js';
 
 const geoCache = new Map();
 const geo = (key, make) => {
@@ -42,6 +42,7 @@ const DENIM_STITCH = new THREE.MeshLambertMaterial({ color: '#f2c14e' });
 const TIE = new THREE.MeshLambertMaterial({ color: '#ff5fa2' });
 const CAMERA_BODY = new THREE.MeshLambertMaterial({ color: '#ff7eb6' });
 const CAMERA_LENS = new THREE.MeshLambertMaterial({ color: '#3a3150' });
+const CAMERA_LIGHT = new THREE.MeshLambertMaterial({ color: '#ff3b3b', emissive: '#aa0000' });
 
 const EMOTE_DURATION = { wave: 1.8, yum: 1.8, wow: 1.6, thumbs: 1.6, silly: 1.8, kiss: 1.6, dance: 2.4, heart: 1.8, jump: 0.7, bite: 1.0 };
 
@@ -106,6 +107,7 @@ export class Character {
   rebuild() {
     const app = this.app;
     const m = this.mats;
+    this.disposeMerged();
     this.body.clear();
 
     // --- legs (pivot at hips)
@@ -169,6 +171,7 @@ export class Character {
       else add(arm, G.cyl(0.085, 0.08, 0.15, 10), m.top, 0, -0.06, 0);
       add(arm, G.sphere(0.07, 10, 8), m.skin, 0, -0.43, 0);
       const anchor = new THREE.Group();
+      anchor.userData.dynamic = true;
       anchor.position.set(0, -0.46, 0.04);
       arm.add(anchor);
       arm.userData.anchor = anchor;
@@ -178,6 +181,7 @@ export class Character {
     this.thumb = add(this.armR, G.capsule(0.022, 0.06), m.skin, 0, -0.42, 0.07);
     this.thumb.rotation.x = Math.PI / 2;
     this.thumb.visible = false;
+    this.thumb.userData.dynamic = true;
     if (this.heldItem) this.armR.userData.anchor.add(this.heldItem);
     if (this.cameraProp) this.armL.userData.anchor.add(this.cameraProp);
 
@@ -210,9 +214,29 @@ export class Character {
     this.tongue = add(this.head, G.sphere(0.045, 10, 8), TONGUE, 0, 0.21, 0.35);
     this.tongue.scale.set(1, 1.3, 0.5);
     this.tongue.visible = false;
+    this.mouthSmile.userData.dynamic = this.mouthO.userData.dynamic = this.tongue.userData.dynamic = true;
     this.buildHair(app.hairStyle);
 
-    this.legL.rotation.set(0, 0, 0);
+    // Merge each rigid part (one mesh per material) to keep draw calls low on iPad.
+    for (const part of [this.hips, this.torso, this.legL, this.legR, this.armL, this.armR, this.head]) {
+      mergeStatic(part, { shallow: true, dispose: false });
+    }
+  }
+
+  disposeMerged() {
+    this.body.traverse((o) => {
+      if (o.userData.merged) o.geometry.dispose();
+    });
+  }
+
+  /** Free GPU resources owned by this character (shared geometry/textures stay cached). */
+  dispose() {
+    this.disposeMerged();
+    for (const m of Object.values(this.mats)) m.dispose();
+    this.shadow.material.dispose();
+    this.labelSprite?.material.dispose();
+    this.clearBubble();
+    this.root.removeFromParent();
   }
 
   buildShoe(leg, kind) {
@@ -340,7 +364,10 @@ export class Character {
 
   // ------------------------------------------------------------ props / bubbles
   setLabel(text, color) {
-    if (this.labelSprite) this.root.remove(this.labelSprite);
+    if (this.labelSprite) {
+      this.root.remove(this.labelSprite);
+      this.labelSprite.material.dispose();
+    }
     this.labelSprite = makeSprite(labelTexture(text, color), 0.34);
     this.labelSprite.position.y = 2.25 * this.scaleFactor;
     this.root.add(this.labelSprite);
@@ -385,7 +412,7 @@ export class Character {
       add(cam, G.box(0.2, 0.14, 0.1), CAMERA_BODY);
       const lens = add(cam, G.cyl(0.045, 0.05, 0.06, 12), CAMERA_LENS, 0, 0, 0.07);
       lens.rotation.x = Math.PI / 2;
-      add(cam, G.sphere(0.02, 8, 6), new THREE.MeshLambertMaterial({ color: '#ff3b3b', emissive: '#aa0000' }), 0.07, 0.05, 0.05);
+      add(cam, G.sphere(0.02, 8, 6), CAMERA_LIGHT, 0.07, 0.05, 0.05);
       cam.rotation.x = -0.3;
       this.cameraProp = cam;
       this.armL.userData.anchor.add(cam);

@@ -37,8 +37,8 @@ export const RESTAURANTS = [
   },
   {
     id: 'mcd', name: "McDonald's", style: 'diner',
-    wall: '#ef3b36', roof: '#ffc72c', trim: '#ffffff', inside: '#fff5d1',
-    sign: { bg: '#fff8e1', fg: '#d62828', border: '#ffc72c' }, accent: '#d62828',
+    wall: '#ff6b5e', roof: '#ffe066', trim: '#ffffff', inside: '#fff5d1',
+    sign: { bg: '#fff8e1', fg: '#e8453c', border: '#ffe066' }, accent: '#e8453c',
     menu: [
       { id: 'burger', name: 'Cheeseburger', emoji: '🍔', blurb: 'Cheesy & yummy' },
       { id: 'fries', name: 'French Fries', emoji: '🍟', blurb: 'Hot & salty' },
@@ -59,8 +59,8 @@ export const RESTAURANTS = [
   },
   {
     id: 'subway', name: 'Subway', style: 'train',
-    wall: '#1f8a4c', roof: '#ffd23f', trim: '#ffffff', inside: '#e7f7dc',
-    sign: { bg: '#ffffff', fg: '#1f8a4c', border: '#ffd23f' }, accent: '#1f8a4c',
+    wall: '#2bb39b', roof: '#b8f2e6', trim: '#ffffff', inside: '#e3f8f3',
+    sign: { bg: '#ffffff', fg: '#1d8f7c', border: '#2bb39b' }, accent: '#1d8f7c',
     menu: [
       { id: 'veggiesub', name: 'Veggie Sub', emoji: '🥖', blurb: 'Lots of crunchy veggies' },
       { id: 'turkeysub', name: 'Turkey Sub', emoji: '🥪', blurb: 'A classic!' },

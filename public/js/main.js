@@ -19,8 +19,11 @@ const INTERP_DELAY = 140; // ms of buffering for smooth remote movement
 const MAX_REMOTES = 7;
 
 // ---------------------------------------------------------------- room code
+const CODE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';
 function makeRoomCode() {
-  return `${pick(ROOM_WORDS_A)}-${pick(ROOM_WORDS_B)}-${1000 + randInt(9000)}`;
+  let tail = '';
+  for (let i = 0; i < 6; i++) tail += CODE_CHARS[randInt(CODE_CHARS.length)];
+  return `${pick(ROOM_WORDS_A)}-${pick(ROOM_WORDS_B)}-${tail}`;
 }
 function resolveRoom() {
   const params = new URLSearchParams(location.search);
@@ -48,7 +51,7 @@ function resolveRoom() {
 const canvas = $('#game');
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: (window.devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
 } catch (err) {
   $('#loading .loading-card').innerHTML = '<div class="loading-logo">😢</div><h1>Oops!</h1><p class="sub">This browser can\'t show the 3D town.<br>Try Safari or Chrome.</p>';
   throw err;
@@ -128,7 +131,7 @@ const remotes = new Map(); // id -> { char, buf, an, name }
 
 function addRemote(p) {
   removeRemote(p.id);
-  if (remotes.size >= MAX_REMOTES) return;
+  if (remotes.size >= MAX_REMOTES) return false;
   const char = new Character(p.app, { label: p.app.name });
   const e = { char, buf: [], an: 'idle', name: p.app.name };
   if (p.st) {
@@ -138,11 +141,12 @@ function addRemote(p) {
   } else char.root.position.set(0, 0, 9);
   scene.add(char.root);
   remotes.set(p.id, e);
+  return true;
 }
 function removeRemote(id) {
   const e = remotes.get(id);
   if (!e) return;
-  scene.remove(e.char.root);
+  e.char.dispose();
   remotes.delete(id);
 }
 function pushState(e, st) {
@@ -156,6 +160,9 @@ function pushState(e, st) {
   }
 }
 const tmpV = new THREE.Vector3();
+const tmpBefore = new THREE.Vector3();
+const ORDER_CAM_OFFSET = new THREE.Vector3(0, 0.8, 1.5);
+const FOOD_LIFT = new THREE.Vector3(0, 0.03, 0);
 function updateRemotes(dt, nowMs) {
   const renderT = nowMs - INTERP_DELAY;
   for (const e of remotes.values()) {
@@ -177,7 +184,7 @@ function updateRemotes(dt, nowMs) {
         }
       }
       tmpV.set(tx, 0, tz);
-      const before = root.position.clone();
+      const before = tmpBefore.copy(root.position);
       if (root.position.distanceTo(tmpV) > 12) root.position.copy(tmpV);
       else root.position.lerp(tmpV, damp(18, dt));
       root.rotation.y = lerpAngle(root.rotation.y, ry, damp(14, dt));
@@ -210,7 +217,7 @@ const net = new Net(room, {
     sendState(true);
   },
   onJoin: (p) => {
-    addRemote(p);
+    if (!addRemote(p)) return;
     updateNetChip();
     sfx.join();
     UI.toast(`👋 ${p.app.name} came to town!`);
@@ -563,7 +570,7 @@ function enterRestaurant(r) {
     cohost.setAppearance({ ...S.app, ...COHOST });
     cohost.root.visible = true;
     seat(cohost, 1);
-    camera.position.copy(world.interior.camPos).add(new THREE.Vector3(0, 0.8, 1.5));
+    camera.position.copy(world.interior.camPos).add(ORDER_CAM_OFFSET);
     camera.lookAt(world.interior.camTarget);
     UI.buildOrder(r, orderFood);
     UI.show('#screen-order', true);
@@ -580,10 +587,10 @@ function orderFood(item) {
   disposeFood(S.food);
   disposeFood(S.cohostFood);
   S.food = createFood(item.id, r.accent);
-  S.food.position.copy(world.interior.plates[0]).add(new THREE.Vector3(0, 0.03, 0));
+  S.food.position.copy(world.interior.plates[0]).add(FOOD_LIFT);
   scene.add(S.food);
   S.cohostFood = createFood(item.id, r.accent);
-  S.cohostFood.position.copy(world.interior.plates[1]).add(new THREE.Vector3(0, 0.03, 0));
+  S.cohostFood.position.copy(world.interior.plates[1]).add(FOOD_LIFT);
   S.cohostFood.rotation.y = 0.6;
   scene.add(S.cohostFood);
   S.foodPop = 0;
@@ -741,7 +748,7 @@ function updateInterior(dt, t) {
   const portrait = innerHeight / innerWidth > 0.9;
   camGoal.copy(world.interior.camPos);
   if (portrait) camGoal.z += 2.4;
-  if (S.mode === 'order') camGoal.add(new THREE.Vector3(0, 0.8, 1.5));
+  if (S.mode === 'order') camGoal.add(ORDER_CAM_OFFSET);
   // a little "hand-held camera" wobble
   camGoal.x += Math.sin(t * 0.7) * 0.04;
   camGoal.y += Math.sin(t * 1.1) * 0.03;
@@ -903,6 +910,7 @@ window.__t42 = {
   netStatus: () => net.status,
   restaurants: () => world.restaurants.map((r) => ({ id: r.id, door: { x: r.door.x, z: r.door.z } })),
   ringRadius: RING_RADIUS,
+  renderInfo: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }),
   /** Test helper: move the local player (plaza only). */
   teleport: (x, z, yaw) => {
     if (S.mode !== 'plaza') return;

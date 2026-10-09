@@ -2,7 +2,7 @@
 // plus a cozy interior "set" (far away in the same scene) used for review mode.
 import * as THREE from '../vendor/three.module.js';
 import { RESTAURANTS } from './data.js';
-import { mat, signTexture, starsCanvas, checkerTexture, stripeTexture, clamp } from './util.js';
+import { mat, signTexture, starsCanvas, checkerTexture, stripeTexture, clamp, mergeStatic } from './util.js';
 
 export const RING_RADIUS = 27;
 export const WORLD_RADIUS = 41;
@@ -20,73 +20,6 @@ const box = (w, hgt, d) => new THREE.BoxGeometry(w, hgt, d);
 const cyl = (rt, rb, hgt, seg = 16) => new THREE.CylinderGeometry(rt, rb, hgt, seg);
 const sphere = (r, w = 12, hs = 8) => new THREE.SphereGeometry(r, w, hs);
 const cone = (r, hgt, seg = 12) => new THREE.ConeGeometry(r, hgt, seg);
-
-/**
- * Merge all static, untextured meshes under `root` into one mesh per material.
- * Turns hundreds of draw calls into a few dozen — important for iPad.
- */
-function mergeStatic(root) {
-  root.updateMatrixWorld(true);
-  const buckets = new Map();
-  const victims = [];
-  root.traverse((o) => {
-    if (!o.isMesh || o.userData.dynamic || o.material.map || o.material.transparent) return;
-    let p = o.parent;
-    while (p && p !== root) {
-      if (p.userData.dynamic) return;
-      p = p.parent;
-    }
-    let list = buckets.get(o.material);
-    if (!list) buckets.set(o.material, (list = []));
-    list.push(o);
-    victims.push(o);
-  });
-  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
-  const tmp = new THREE.Matrix4();
-  for (const [material, meshes] of buckets) {
-    let vCount = 0;
-    let iCount = 0;
-    for (const m of meshes) {
-      vCount += m.geometry.attributes.position.count;
-      iCount += m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count;
-    }
-    const pos = new Float32Array(vCount * 3);
-    const nor = new Float32Array(vCount * 3);
-    const idx = vCount > 65535 ? new Uint32Array(iCount) : new Uint16Array(iCount);
-    let vo = 0;
-    let io = 0;
-    const v = new THREE.Vector3();
-    const nm = new THREE.Matrix3();
-    for (const m of meshes) {
-      const g = m.geometry;
-      tmp.multiplyMatrices(inv, m.matrixWorld);
-      nm.getNormalMatrix(tmp);
-      const P = g.attributes.position;
-      const N = g.attributes.normal;
-      for (let i = 0; i < P.count; i++) {
-        v.fromBufferAttribute(P, i).applyMatrix4(tmp);
-        pos.set([v.x, v.y, v.z], (vo + i) * 3);
-        v.fromBufferAttribute(N, i).applyMatrix3(nm).normalize();
-        nor.set([v.x, v.y, v.z], (vo + i) * 3);
-      }
-      if (g.index) for (let i = 0; i < g.index.count; i++) idx[io++] = g.index.getX(i) + vo;
-      else for (let i = 0; i < P.count; i++) idx[io++] = i + vo;
-      vo += P.count;
-    }
-    const merged = new THREE.BufferGeometry();
-    merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    merged.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    merged.setIndex(new THREE.BufferAttribute(idx, 1));
-    merged.computeBoundingSphere();
-    const mesh = new THREE.Mesh(merged, material);
-    mesh.matrixAutoUpdate = false;
-    root.add(mesh);
-  }
-  for (const m of victims) {
-    m.parent.remove(m);
-    m.geometry.dispose();
-  }
-}
 
 // --------------------------------------------------------------------- decorations
 function tree(parent, x, z, kind = 0, s = 1) {
@@ -257,15 +190,15 @@ const BUILDERS = {
       for (let i = 0; i < 4; i++) add(g, box(0.18, 0.9, 0.08), '#ffffff', side * (1.7 + i * 0.6), 0.45, D / 2 + 1.6);
       add(g, box(2.2, 0.12, 0.06), '#ffffff', side * 2.6, 0.65, D / 2 + 1.6);
     }
-    // cute rooftop chick
+    // giant rooftop milkshake
     const c = new THREE.Group();
-    c.position.set(-2, 6.6, 0.6);
-    add(c, sphere(0.9, 14, 10), '#fff3b0', 0, 0, 0);
-    add(c, sphere(0.6, 14, 10), '#fff3b0', 0, 1.0, 0.3);
-    add(c, cone(0.2, 0.4, 8), '#ff9f1c', 0, 1.0, 0.95, Math.PI / 2, 0, 0);
-    add(c, sphere(0.09, 8, 6), '#2a1a2e', -0.22, 1.2, 0.8);
-    add(c, sphere(0.09, 8, 6), '#2a1a2e', 0.22, 1.2, 0.8);
-    add(c, sphere(0.2, 8, 6), '#e5383b', 0, 1.65, 0.3);
+    c.position.set(-2.2, 5.6, 0.4);
+    add(c, cyl(0.9, 0.7, 2.2, 16), '#ffc8dd', 0, 1.1, 0);
+    add(c, cyl(0.93, 0.93, 0.35, 16), '#ffffff', 0, 1.6, 0);
+    add(c, sphere(0.85, 14, 10), '#fffaf0', 0, 2.35, 0).scale.y = 0.6;
+    add(c, sphere(0.55, 14, 10), '#fffaf0', 0, 2.75, 0);
+    add(c, sphere(0.28, 10, 8), '#e5383b', 0, 3.35, 0);
+    add(c, cyl(0.1, 0.1, 2.2, 8), '#ff5fa2', 0.35, 3.1, -0.2, 0, 0, -0.3);
     g.add(c);
     return { w: W, d: D, h: 8.6, signY: 3.2, signZ: D / 2 + 1.0 };
   },
@@ -277,7 +210,7 @@ const BUILDERS = {
     for (const x of [-(W / 2 - 1), W / 2 - 1]) add(g, cyl(1, 1, 4, 20), r.wall, x, 2, 0).scale.z = D / 2;
     add(g, box(W + 0.4, 0.8, D + 0.4), r.roof, 0, 4.4, 0);
     add(g, box(W + 0.4, 0.25, D + 0.4), '#ffffff', 0, 4.9, 0);
-    door(g, D / 2, '#ffc72c');
+    door(g, D / 2, '#ffe066');
     windowsRow(g, W, 2.0, D / 2, '#bfe9ff', 2, 5.2);
     // big rooftop burger
     const b = new THREE.Group();
@@ -424,20 +357,21 @@ export function buildWorld(scene) {
   water.userData.dynamic = true;
   add(staticRoot, cyl(0.45, 0.6, 2.2, 12), '#ffffff', 0, 1.4, 0);
   add(staticRoot, cyl(1.3, 0.5, 0.35, 20), '#d7ecff', 0, 2.5, 0);
-  const jets = new THREE.Group();
+  const DROPS = 10;
+  const jets = new THREE.InstancedMesh(sphere(0.16, 8, 6), new THREE.MeshLambertMaterial({ color: '#a7e3ff', emissive: '#4fb8ff', emissiveIntensity: 0.3 }), DROPS);
+  jets.frustumCulled = false;
   scene.add(jets);
-  const dropMat = mat('#a7e3ff', { emissive: '#4fb8ff', emissiveIntensity: 0.3 });
-  for (let i = 0; i < 10; i++) {
-    const d = add(jets, sphere(0.16, 8, 6), dropMat, 0, 0, 0);
-    d.userData.phase = i / 10;
-    d.userData.angle = (i / 10) * Math.PI * 2;
-  }
+  const drop = new THREE.Object3D();
   animated.push((t) => {
-    for (const d of jets.children) {
-      const f = (t * 0.6 + d.userData.phase) % 1;
+    for (let i = 0; i < DROPS; i++) {
+      const f = (t * 0.6 + i / DROPS) % 1;
       const r = 0.3 + f * 1.9;
-      d.position.set(Math.cos(d.userData.angle) * r, 2.7 + Math.sin(f * Math.PI) * 1.4 - f * 1.6, Math.sin(d.userData.angle) * r);
+      const a = (i / DROPS) * Math.PI * 2;
+      drop.position.set(Math.cos(a) * r, 2.7 + Math.sin(f * Math.PI) * 1.4 - f * 1.6, Math.sin(a) * r);
+      drop.updateMatrix();
+      jets.setMatrixAt(i, drop.matrix);
     }
+    jets.instanceMatrix.needsUpdate = true;
     water.position.y = 0.66 + Math.sin(t * 2) * 0.02;
   });
   colliders.push({ type: 'circle', x: 0, z: 0, r: 3.6 });
@@ -524,11 +458,13 @@ export function buildWorld(scene) {
       },
     });
   });
+  const MAT_ON = new THREE.Color('#ffe066');
+  const MAT_OFF = new THREE.Color('#ffffff');
   animated.push((t, near) => {
     for (const r of restaurants) {
       const on = near === r;
       r.mat.material.opacity = on ? 0.75 + Math.sin(t * 8) * 0.25 : 0.45;
-      r.mat.material.color.set(on ? '#ffe066' : '#ffffff');
+      r.mat.material.color.copy(on ? MAT_ON : MAT_OFF);
       r.mat.scale.setScalar(on ? 1.15 + Math.sin(t * 8) * 0.08 : 1);
       r.star.position.y = r.dims.h + 2.2 + Math.sin(t * 1.8 + r.index) * 0.18;
     }
