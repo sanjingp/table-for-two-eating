@@ -353,7 +353,7 @@ export class Character {
     }
     this.bubble = makeSprite(tex, height);
     this.bubble.userData.baseScale = this.bubble.scale.clone();
-    this.bubble.position.y = (this.labelSprite ? 2.75 : 2.45) * this.scaleFactor + height / 2 - 0.2;
+    this.bubble.position.y = (this.labelSprite?.visible ? 2.75 : 2.3) * this.scaleFactor + height / 2 - 0.2;
     this.bubbleT = seconds;
     this.bubbleTotal = seconds;
     this.root.add(this.bubble);

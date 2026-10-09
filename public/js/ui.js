@@ -241,7 +241,7 @@ export function buildBook(stats) {
     const r = RESTAURANT_BY_ID[id];
     const s = stats[id];
     const starStr = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
-    const header = h('header', { style: { background: r.wall === '#fdfdfd' ? '#d62828' : r.wall } },
+    const header = h('header', { style: { background: r.accent } },
       h('span', {}, r.name), h('span.avg', {}, s.count ? starStr(Math.round(s.avg)) : ''));
     const body = s.count
       ? h('ul', {}, s.list.slice(-6).reverse().map((rv) => h('li', {},

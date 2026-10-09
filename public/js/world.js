@@ -202,12 +202,12 @@ const BUILDERS = {
     door(g, D / 2, '#7a1c1c', r.trim);
     windowsRow(g, W, 2.4, D / 2, '#ffe8a3', 2, 5.4);
     // hanging lanterns
-    for (const x of [-2.2, 2.2]) {
-      add(g, cyl(0.02, 0.02, 0.6, 4), '#333333', x, 3.9, D / 2 + 1.3);
-      add(g, sphere(0.38, 12, 10), mat('#ff3b30', { emissive: '#ff3b30', emissiveIntensity: 0.4 }), x, 3.35, D / 2 + 1.3).scale.y = 1.2;
-      add(g, cyl(0.2, 0.2, 0.1, 10), r.trim, x, 2.85, D / 2 + 1.3);
+    for (const x of [-2.4, 2.4]) {
+      add(g, cyl(0.02, 0.02, 0.5, 4), '#333333', x, 3.95, D / 2 + 1.0);
+      add(g, sphere(0.36, 12, 10), mat('#ff3b30', { emissive: '#ff3b30', emissiveIntensity: 0.4 }), x, 3.45, D / 2 + 1.0).scale.y = 1.2;
+      add(g, cyl(0.2, 0.2, 0.1, 10), r.trim, x, 2.98, D / 2 + 1.0);
     }
-    return { w: W, d: D, h: 9.5, signY: 4.4, signZ: D / 2 + 0.6 };
+    return { w: W, d: D, h: 9.5, signY: 6.35, signZ: 2.25 };
   },
 
   deli(g, r) {
@@ -302,7 +302,7 @@ const BUILDERS = {
     const D = 7;
     add(g, box(W, 3.8, D), r.wall, 0, 1.9, 0);
     add(g, box(W + 0.4, 0.6, D + 0.4), r.roof, 0, 4.0, 0);
-    for (let i = 0; i < 6; i++) add(g, cyl(0.16, 0.16, 1.0, 8), '#7b4a2a', -3.6 + i * 1.45, 3.4, D / 2 + 0.3, Math.PI / 2, 0, 0);
+    for (let i = 0; i < 6; i++) if (i !== 2 && i !== 3) add(g, cyl(0.16, 0.16, 1.0, 8), '#7b4a2a', -3.6 + i * 1.45, 3.45, D / 2 + 0.3, Math.PI / 2, 0, 0);
     door(g, D / 2, '#7a2e1b', r.trim);
     windowsRow(g, W, 1.9, D / 2, '#bfe9ff', 2, 5.4);
     // cactus pots
@@ -319,7 +319,7 @@ const BUILDERS = {
     add(b, new THREE.CapsuleGeometry(0.9, 3.6, 4, 14), '#f3dca6', 0.6, 0, 0, 0, 0, Math.PI / 2);
     add(b, cyl(0.95, 0.95, 2.4, 16), '#c9cfd6', -1.0, 0, 0, 0, 0, Math.PI / 2);
     g.add(b);
-    return { w: W, d: D, h: 7.0, signY: 3.4, signZ: D / 2 + 0.75 };
+    return { w: W, d: D, h: 7.0, signY: 3.25, signZ: D / 2 + 0.15 };
   },
 
   train(g, r) {
@@ -444,15 +444,15 @@ export function buildWorld(scene) {
 
   // welcome arch at the south entrance
   const arch = new THREE.Group();
-  arch.position.set(0, 0, 16.5);
+  arch.position.set(0, 0, 20.5);
   arch.rotation.y = Math.PI;
   for (const x of [-3.2, 3.2]) {
     add(arch, cyl(0.3, 0.35, 4.6, 10), '#ff8fc7', x, 2.3, 0);
     add(arch, sphere(0.5, 12, 10), '#ffd23f', x, 4.8, 0);
-    colliders.push({ type: 'circle', x: x, z: 16.5, r: 0.5 });
+    colliders.push({ type: 'circle', x: x, z: 20.5, r: 0.5 });
   }
   add(arch, box(7.2, 1.2, 0.3), '#9b5de5', 0, 4.3, 0);
-  const welcome = new THREE.Mesh(new THREE.PlaneGeometry(6.8, 1.7), new THREE.MeshLambertMaterial({
+  const welcome = new THREE.Mesh(new THREE.PlaneGeometry(6.8, 1.7), new THREE.MeshBasicMaterial({
     map: signTexture('Yummy Town', { bg: '#fff6fb', fg: '#ff4fa0', border: '#9b5de5' }), transparent: true,
   }));
   welcome.position.set(0, 4.3, 0.17);
@@ -486,7 +486,7 @@ export function buildWorld(scene) {
     staticRoot.add(g);
 
     // sign (canvas text only)
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.3), new THREE.MeshLambertMaterial({ map: signTexture(r.name, r.sign), transparent: true }));
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.3), new THREE.MeshBasicMaterial({ map: signTexture(r.name, r.sign), transparent: true }));
     sign.position.set(0, dims.signY, dims.signZ + 0.05);
     g.add(sign);
 
@@ -510,8 +510,8 @@ export function buildWorld(scene) {
     const starTex = new THREE.CanvasTexture(starCanvas);
     starTex.colorSpace = THREE.SRGBColorSpace;
     const star = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex, transparent: true, depthWrite: false }));
-    star.scale.set(4.2, 1.31, 1);
-    star.position.set(cx, dims.h + 1.6, cz);
+    star.scale.set(6.4, 2.0, 1);
+    star.position.set(cx, dims.h + 2.2, cz);
     star.renderOrder = 5;
     scene.add(star);
 
@@ -530,7 +530,7 @@ export function buildWorld(scene) {
       r.mat.material.opacity = on ? 0.75 + Math.sin(t * 8) * 0.25 : 0.45;
       r.mat.material.color.set(on ? '#ffe066' : '#ffffff');
       r.mat.scale.setScalar(on ? 1.15 + Math.sin(t * 8) * 0.08 : 1);
-      r.star.position.y = r.dims.h + 1.6 + Math.sin(t * 1.8 + r.index) * 0.18;
+      r.star.position.y = r.dims.h + 2.2 + Math.sin(t * 1.8 + r.index) * 0.18;
     }
   });
 
@@ -663,7 +663,7 @@ function buildInterior(scene) {
   add(g, box(14, 0.25, 0.1), trimMat, 0, 4.6, -2.95);
 
   // sign on the back wall
-  const signMat = new THREE.MeshLambertMaterial({ transparent: true });
+  const signMat = new THREE.MeshBasicMaterial({ transparent: true });
   const sign = add(g, new THREE.PlaneGeometry(4.6, 1.15), signMat, 0, 3.55, -2.9);
 
   // windows
@@ -714,14 +714,14 @@ function buildInterior(scene) {
     group: g,
     seats: seats.map((s) => s.clone().add(INTERIOR_ORIGIN)),
     plates: plates.map((p) => p.clone().add(INTERIOR_ORIGIN)),
-    camTarget: new THREE.Vector3(0, 1.15, -0.3).add(INTERIOR_ORIGIN),
-    camPos: new THREE.Vector3(0, 1.75, 3.6).add(INTERIOR_ORIGIN),
+    camTarget: new THREE.Vector3(0, 1.55, -0.5).add(INTERIOR_ORIGIN),
+    camPos: new THREE.Vector3(0, 2.15, 5.3).add(INTERIOR_ORIGIN),
     setRestaurant(r) {
       wallMat.color.set(r.inside);
-      trimMat.color.set(r.style === 'deli' ? '#d62828' : r.wall === '#fdfdfd' ? '#d62828' : r.wall);
+      trimMat.color.set(r.accent);
       signMat.map = signTexture(r.name, r.sign);
       signMat.needsUpdate = true;
-      clothMat.map = checkerTexture(r.roof === '#ffc72c' ? '#ffc72c' : r.wall === '#fdfdfd' ? '#d62828' : r.wall, '#ffffff', 6);
+      clothMat.map = checkerTexture(r.accent, '#ffffff', 6);
       clothMat.needsUpdate = true;
     },
   };

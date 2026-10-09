@@ -96,7 +96,7 @@ setMuted(S.settings.muted);
 
 const player = new Character(S.app, { label: S.app.name });
 player.setLabel(S.app.name, '#ff4fa0');
-player.root.position.set(0, 0, 9);
+player.root.position.set(0, 0, 7);
 player.root.rotation.y = S.facing;
 scene.add(player.root);
 
@@ -286,7 +286,8 @@ function applyViewShift() {
   const H = innerHeight;
   const { right, bottom } = S.viewShift;
   camera.aspect = W / H;
-  if (right || bottom) camera.setViewOffset(W + right, H + bottom, right, bottom, W, H);
+  // Pure shift (no zoom): centre the scene in the area not covered by a panel.
+  if (right || bottom) camera.setViewOffset(W, H, right / 2, bottom / 2, W, H);
   else camera.clearViewOffset();
   camera.updateProjectionMatrix();
 }
@@ -334,21 +335,23 @@ function updatePlaza(dt) {
   let near = null;
   for (const r of world.restaurants) if (Math.hypot(pos.x - r.door.x, pos.z - r.door.z) < 2.6) near = r;
   if (near !== S.near) {
-    S.near = near;
-    UI.show('#btn-go-in', !!near);
-    $('#action-label').textContent = near ? 'Go in!' : 'Jump';
-    $('#btn-action').firstChild.textContent = near ? '🚪' : '⭐';
-    if (near) {
-      $('#go-in-name').textContent = near.name;
-      sfx.sparkle();
-    }
+    setNear(near);
+    if (near) sfx.sparkle();
   }
   followCamera(dt);
 }
 
+function setNear(near) {
+  S.near = near;
+  UI.show('#btn-go-in', !!near);
+  $('#action-label').textContent = near ? 'Go in!' : 'Jump';
+  $('#btn-action').firstChild.textContent = near ? '🚪' : '⭐';
+  if (near) $('#go-in-name').textContent = near.name;
+}
+
 function followCamera(dt, snap = false) {
   const p = player.root.position;
-  lookGoal.set(p.x, 1.3, p.z);
+  lookGoal.set(p.x, 2.0, p.z);
   // Pull the camera in if a building is in the way.
   let dist = S.camDist;
   const cp = Math.cos(S.camPitch);
@@ -437,7 +440,7 @@ function openStudio(kind, first = false) {
   S.mode = 'studio';
   S.studio = { kind, first };
   S.spin = 0;
-  S.studioYaw = S.camYaw;
+  S.studioYaw = clearYaw(player.root.position, innerHeight > innerWidth ? 6.1 : 4.3);
   player.speed = 0;
   S.vel.set(0, 0, 0);
   showHud(false);
@@ -487,6 +490,22 @@ $('#studio-done').addEventListener('click', () => {
   }
 });
 
+/** Find a camera direction around `p` with nothing in the way for `dist` units. */
+function clearYaw(p, dist) {
+  const toCenter = Math.atan2(-p.x, -p.z);
+  const candidates = [S.camYaw, toCenter, S.camYaw + Math.PI, S.camYaw + Math.PI / 2, S.camYaw - Math.PI / 2];
+  for (const yaw of candidates) {
+    let clear = true;
+    for (let d = 0.8; d <= dist && clear; d += 0.4) {
+      const x = p.x + Math.sin(yaw) * d;
+      const z = p.z + Math.cos(yaw) * d;
+      if (world.blocked(x, z, 0.5) || Math.hypot(x, z) < 3.8) clear = false;
+    }
+    if (clear) return yaw;
+  }
+  return toCenter;
+}
+
 function closeStudio() {
   S.studio = null;
   UI.show('#screen-studio', false);
@@ -502,7 +521,7 @@ function updateStudio(dt) {
   if (Math.abs(look.x) < 0.01) S.spin += dt * 0.25;
   const p = player.root.position;
   const portrait = innerHeight > innerWidth;
-  const dist = portrait ? 5.4 : 3.6;
+  const dist = portrait ? 5.6 : 3.8;
   player.root.rotation.y = S.studioYaw + S.spin;
   player.speed = 0;
   camGoal.set(p.x + Math.sin(S.studioYaw) * dist, 1.3, p.z + Math.cos(S.studioYaw) * dist);
@@ -535,12 +554,12 @@ function enterRestaurant(r) {
   fade(() => {
     S.plazaPos.copy(player.root.position);
     S.restaurant = r;
-    S.near = null;
-    UI.show('#btn-go-in', false);
+    setNear(null);
     player.speed = 0;
     S.vel.set(0, 0, 0);
     world.interior.setRestaurant(r);
     seat(player, 0);
+    player.labelSprite.visible = false;
     cohost.setAppearance({ ...S.app, ...COHOST });
     cohost.root.visible = true;
     seat(cohost, 1);
@@ -560,10 +579,10 @@ function orderFood(item) {
   const r = S.restaurant;
   disposeFood(S.food);
   disposeFood(S.cohostFood);
-  S.food = createFood(item.id, r.wall === '#fdfdfd' ? r.roof : r.wall);
+  S.food = createFood(item.id, r.accent);
   S.food.position.copy(world.interior.plates[0]).add(new THREE.Vector3(0, 0.03, 0));
   scene.add(S.food);
-  S.cohostFood = createFood(item.id, r.wall === '#fdfdfd' ? r.roof : r.wall);
+  S.cohostFood = createFood(item.id, r.accent);
   S.cohostFood.position.copy(world.interior.plates[1]).add(new THREE.Vector3(0, 0.03, 0));
   S.cohostFood.rotation.y = 0.6;
   scene.add(S.cohostFood);
@@ -696,10 +715,11 @@ function leaveRestaurant() {
     S.food = S.cohostFood = null;
     cohost.root.visible = false;
     player.pose = 'stand';
+    player.labelSprite.visible = true;
     player.holdCamera(false);
     player.setHeldItem(null);
     // step out of the door toward the plaza
-    const out = r.door.clone().multiplyScalar((r.door.length() - 2.2) / r.door.length());
+    const out = r.door.clone().multiplyScalar((r.door.length() - 4.5) / r.door.length());
     player.root.position.set(out.x, 0, out.z);
     S.facing = Math.atan2(-out.x, -out.z);
     player.root.rotation.y = S.facing;
@@ -884,8 +904,9 @@ window.__t42 = {
   restaurants: () => world.restaurants.map((r) => ({ id: r.id, door: { x: r.door.x, z: r.door.z } })),
   ringRadius: RING_RADIUS,
   /** Test helper: move the local player (plaza only). */
-  teleport: (x, z) => {
+  teleport: (x, z, yaw) => {
     if (S.mode !== 'plaza') return;
+    if (typeof yaw === 'number') S.camYaw = yaw;
     player.root.position.set(x, 0, z);
     world.resolve(player.root.position);
     followCamera(0, true);

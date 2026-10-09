@@ -5,7 +5,7 @@ export const RESTAURANTS = [
   {
     id: 'china', name: 'China Garden', style: 'pagoda',
     wall: '#e63946', roof: '#2a9d8f', trim: '#ffd166', inside: '#ffe1d6',
-    sign: { bg: '#fff6dc', fg: '#c1121f', border: '#ffd166' },
+    sign: { bg: '#fff6dc', fg: '#c1121f', border: '#ffd166' }, accent: '#c1121f',
     menu: [
       { id: 'dumplings', name: 'Dumplings', emoji: '🥟', blurb: 'Squishy little pockets!' },
       { id: 'orangechicken', name: 'Orange Chicken', emoji: '🍊', blurb: 'Sweet & tangy bites' },
@@ -16,7 +16,7 @@ export const RESTAURANTS = [
   {
     id: 'jj', name: "Jimmy John's", style: 'deli',
     wall: '#fdfdfd', roof: '#d62828', trim: '#222222', inside: '#f1f1f1',
-    sign: { bg: '#ffffff', fg: '#d62828', border: '#222222' },
+    sign: { bg: '#ffffff', fg: '#d62828', border: '#222222' }, accent: '#d62828',
     menu: [
       { id: 'sandwich', name: 'Turkey Sandwich', emoji: '🥪', blurb: 'Stacked up tall!' },
       { id: 'hamsub', name: 'Ham & Cheese Sub', emoji: '🥖', blurb: 'A long, long sandwich' },
@@ -27,7 +27,7 @@ export const RESTAURANTS = [
   {
     id: 'cfa', name: 'Chick-fil-A', style: 'cottage',
     wall: '#fff3e6', roof: '#e5383b', trim: '#ffffff', inside: '#fff0f0',
-    sign: { bg: '#ffffff', fg: '#e5383b', border: '#e5383b' },
+    sign: { bg: '#ffffff', fg: '#e5383b', border: '#e5383b' }, accent: '#e5383b',
     menu: [
       { id: 'nuggets', name: 'Chicken Nuggets', emoji: '🍗', blurb: 'Golden & crispy' },
       { id: 'wafflefries', name: 'Waffle Fries', emoji: '🍟', blurb: 'Criss-cross potatoes' },
@@ -38,7 +38,7 @@ export const RESTAURANTS = [
   {
     id: 'mcd', name: "McDonald's", style: 'diner',
     wall: '#ef3b36', roof: '#ffc72c', trim: '#ffffff', inside: '#fff5d1',
-    sign: { bg: '#fff8e1', fg: '#d62828', border: '#ffc72c' },
+    sign: { bg: '#fff8e1', fg: '#d62828', border: '#ffc72c' }, accent: '#d62828',
     menu: [
       { id: 'burger', name: 'Cheeseburger', emoji: '🍔', blurb: 'Cheesy & yummy' },
       { id: 'fries', name: 'French Fries', emoji: '🍟', blurb: 'Hot & salty' },
@@ -49,7 +49,7 @@ export const RESTAURANTS = [
   {
     id: 'chipotle', name: 'Chipotle', style: 'adobe',
     wall: '#b5652f', roof: '#7a2e1b', trim: '#f2cc8f', inside: '#fbe4cf',
-    sign: { bg: '#fdf0e1', fg: '#7a2e1b', border: '#7a2e1b' },
+    sign: { bg: '#fdf0e1', fg: '#7a2e1b', border: '#7a2e1b' }, accent: '#7a2e1b',
     menu: [
       { id: 'burrito', name: 'Burrito', emoji: '🌯', blurb: 'All wrapped up!' },
       { id: 'bowl', name: 'Burrito Bowl', emoji: '🥗', blurb: 'Rice, beans & more' },
@@ -60,7 +60,7 @@ export const RESTAURANTS = [
   {
     id: 'subway', name: 'Subway', style: 'train',
     wall: '#1f8a4c', roof: '#ffd23f', trim: '#ffffff', inside: '#e7f7dc',
-    sign: { bg: '#ffffff', fg: '#1f8a4c', border: '#ffd23f' },
+    sign: { bg: '#ffffff', fg: '#1f8a4c', border: '#ffd23f' }, accent: '#1f8a4c',
     menu: [
       { id: 'veggiesub', name: 'Veggie Sub', emoji: '🥖', blurb: 'Lots of crunchy veggies' },
       { id: 'turkeysub', name: 'Turkey Sub', emoji: '🥪', blurb: 'A classic!' },
@@ -71,7 +71,7 @@ export const RESTAURANTS = [
   {
     id: 'tacobell', name: 'Taco Bell', style: 'mission',
     wall: '#8e5cf7', roof: '#ff7eb6', trim: '#ffe066', inside: '#efe4ff',
-    sign: { bg: '#ffffff', fg: '#6a2ee8', border: '#ff7eb6' },
+    sign: { bg: '#ffffff', fg: '#6a2ee8', border: '#ff7eb6' }, accent: '#6a2ee8',
     menu: [
       { id: 'taco', name: 'Crunchy Taco', emoji: '🌮', blurb: 'Crunch!' },
       { id: 'quesadilla', name: 'Cheesy Quesadilla', emoji: '🧀', blurb: 'Gooey cheese triangles' },
