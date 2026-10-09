@@ -26,3 +26,7 @@
 ## Known issues
 - Emoji rendering depends on the device font (perfect on iPad; boxes in some headless Linux browsers).
 - Free Render instances sleep when idle; first connection can take ~30 s.
+
+## Hosting attempt (Grok Bot, Oct 9 2026)
+- Tried no-account Cloudflare quick tunnel: box network blocks Cloudflare edge (QUIC and TCP 7844). No ssh client for localhost.run.
+- Needs a free host account Sonny creates (Render.com recommended; render.yaml included).
