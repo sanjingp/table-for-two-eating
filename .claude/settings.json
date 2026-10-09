@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["Bash(npm *)","Bash(node *)","Bash(npx *)","Bash(git *)","Bash(ls *)","Bash(mkdir *)","Bash(cp *)","Bash(curl *)","Read","Edit","Write","Glob","Grep"],
+    "deny": ["Bash(git push *)","Bash(rm -rf /*)"]
+  }
+}
