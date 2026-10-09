@@ -1,0 +1,24 @@
+{
+  "name": "table-for-two-eating",
+  "version": "1.0.0",
+  "description": "Kid-safe 3D multiplayer restaurant review game for iPad Safari",
+  "private": true,
+  "type": "module",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "vendor": "node scripts/vendor.mjs",
+    "postinstall": "node scripts/vendor.mjs",
+    "test": "node tests/e2e.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.0"
+  }
+}
