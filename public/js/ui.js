@@ -1,7 +1,9 @@
 // DOM builders for the menu screens. All text shown comes from preset lists — never from other players.
 import { h, $, pick } from './util.js';
-import { HAIR_STYLES, NAME_ADJ, NAME_NOUN, SKIN_STOPS, LINES, RESTAURANT_IDS } from './schema.js';
-import { HAIR_STYLE_INFO, HAIR_COLORS, EYE_COLORS, CLOTH_COLORS, CLOTHES, EMOTE_INFO, MOODS, RESTAURANT_BY_ID, FOOD_REACTIONS } from './data.js';
+import { HAIR_STYLES, HATS, NAME_ADJ, NAME_NOUN, SKIN_STOPS, LINES, RESTAURANT_IDS } from './schema.js';
+import {
+  HAIR_STYLE_INFO, HAIR_COLORS, EYE_COLORS, CLOTH_COLORS, CLOTHES, EMOTE_INFO, MOODS, RESTAURANT_BY_ID, FOOD_REACTIONS, HAT_INFO, BADGES,
+} from './data.js';
 import { sfx } from './audio.js';
 
 let toastTimer = 0;
@@ -78,7 +80,7 @@ function optionGrid(options, current, onPick) {
 
 // ------------------------------------------------------------------ studio (creator + closet)
 /**
- * ctx = { getApp(), update(patch) }
+ * ctx = { getApp(), update(patch), hats() } — hats() lists the hat ids unlocked so far.
  * Returns tab definitions for the given studio kind.
  */
 export function studioTabs(kind, ctx) {
@@ -89,9 +91,12 @@ export function studioTabs(kind, ctx) {
       { id: 'hair', icon: '💇', label: 'Hair', build: () => buildHair(ctx) },
     ];
   }
-  return Object.entries(CLOTHES).map(([slot, def]) => ({
-    id: slot, icon: def.icon, label: def.title, build: () => buildClothes(slot, def, ctx),
-  }));
+  return [
+    ...Object.entries(CLOTHES).map(([slot, def]) => ({
+      id: slot, icon: def.icon, label: def.title, build: () => buildClothes(slot, def, ctx),
+    })),
+    { id: 'hat', icon: '👑', label: 'Hats', build: () => buildHats(ctx) },
+  ];
 }
 
 function buildName(ctx) {
@@ -168,6 +173,38 @@ function buildClothes(slot, def, ctx) {
   );
 }
 
+/** Hats are passport prizes: locked ones show how to earn them instead of being worn. */
+function buildHats(ctx) {
+  const unlocked = ctx.hats();
+  const btns = [];
+  const grid = h('div.opt-grid', {}, HATS.map((hat) => {
+    const info = HAT_INFO[hat];
+    const open = unlocked.includes(hat);
+    const badge = BADGES.find((b) => b.hat === hat);
+    const b = h(`button.opt${open ? '' : '.locked'}`, {
+      dataset: { value: hat },
+      'aria-label': open ? info.label : `${info.label} (locked)`,
+      onclick: () => {
+        if (!open) {
+          sfx.tap();
+          toast(`🔒 ${badge.goal} to get the ${info.label}!`, 3400);
+          return;
+        }
+        sfx.pop();
+        ctx.update({ hat });
+        btns.forEach((x) => x.classList.toggle('on', x === b));
+      },
+    }, h('span.oi', {}, open ? info.icon : '🔒'), info.label, !open && h('small', {}, badge.goal));
+    if (hat === ctx.getApp().hat) b.classList.add('on');
+    btns.push(b);
+    return b;
+  }));
+  return h('div', {},
+    h('div.section-title', {}, '👑 Hats'),
+    grid,
+    h('p.hint', {}, 'Win badges in your Sticker Passport (📖 My Reviews) to unlock more hats!'));
+}
+
 // ------------------------------------------------------------------ plaza emote panel
 export function buildEmotePanel(emotes, lines, onEmote, onSay) {
   const grid = $('#emote-grid');
@@ -230,8 +267,61 @@ export function buildRate(item, onDone) {
   };
 }
 
-// ------------------------------------------------------------------ scrapbook
-export function buildBook(stats) {
+// ------------------------------------------------------------------ new badge
+export function buildReward(badge) {
+  const hat = HAT_INFO[badge.hat];
+  $('#reward-emoji').textContent = badge.emoji;
+  $('#reward-name').textContent = badge.name;
+  $('#reward-prize').textContent = `You unlocked the ${hat.label}! ${hat.icon}`;
+}
+
+// ------------------------------------------------------------------ scrapbook + sticker passport
+export function showBookTab(which) {
+  show('#book-passport', which === 'passport');
+  show('#book-grid', which === 'reviews');
+  $('#book-tab-passport').classList.toggle('on', which === 'passport');
+  $('#book-tab-reviews').classList.toggle('on', which === 'reviews');
+}
+
+/** progress = passportProgress(reviews): the stickers and badges earned so far. */
+function buildPassport(progress) {
+  const got = new Set(progress.stickers);
+  const tilts = ['-8deg', '5deg', '-3deg', '9deg', '-6deg', '4deg'];
+  const stickers = RESTAURANT_IDS.map((id, i) => {
+    const r = RESTAURANT_BY_ID[id];
+    const b = h(`button.sticker${got.has(id) ? '.got' : ''}`, {
+      dataset: { id },
+      'aria-label': `${r.name} sticker${got.has(id) ? '' : ' (not earned yet)'}`,
+      onclick: () => {
+        sfx.tap();
+        toast(got.has(id) ? `${r.sticker} You reviewed ${r.name}!` : `Film a review at ${r.name} to earn this sticker!`);
+      },
+    }, h('span.st-emoji', {}, r.sticker), h('span.st-name', {}, r.name));
+    b.style.setProperty('--c', r.accent);
+    b.style.setProperty('--tilt', tilts[i % tilts.length]);
+    return b;
+  });
+  const badges = progress.badges.map((b) => {
+    const hat = HAT_INFO[b.hat];
+    return h(`div.badge-card${b.earned ? '.earned' : ''}`, { dataset: { id: b.id } },
+      h('div.bd-emoji', {}, b.emoji),
+      h('div.bd-name', {}, b.name),
+      h('div.bd-goal', {}, b.goal),
+      h('div.bd-bar', {}, h('i', { style: { width: `${Math.round((b.have / b.need) * 100)}%` } })),
+      h('div.bd-count', {}, b.earned ? 'Done! 🎉' : `${b.have} of ${b.need}${b.where ? ` at ${b.where}` : ''}`),
+      h('div.bd-prize', {}, `${b.earned ? '✅' : '🔒'} ${hat.label} ${hat.icon}`));
+  });
+  $('#book-passport').replaceChildren(
+    h('div.section-title', {}, `🎫 My stickers: ${got.size} of ${RESTAURANT_IDS.length}`),
+    h('div.sticker-grid', {}, stickers),
+    h('div.section-title', {}, '🏅 Badges unlock hats'),
+    h('div.badge-row', {}, badges),
+  );
+}
+
+export function buildBook(stats, progress) {
+  buildPassport(progress);
+  showBookTab('passport');
   const total = Object.values(stats).reduce((a, s) => a + s.count, 0);
   const visited = Object.values(stats).filter((s) => s.count).length;
   $('#book-summary').textContent = total

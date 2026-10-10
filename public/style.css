@@ -105,6 +105,7 @@ body { position: fixed; inset: 0; }
   background: linear-gradient(180deg, #7cf0a0, var(--green)); animation: bounce 1s ease-in-out infinite;
 }
 .go-in small { font-size: 16px; }
+.go-in small:empty { display: none; }
 .go-in:active { transform: translateX(-50%) translateY(4px) scale(.96); }
 @keyframes bounce { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-8px); } }
 
@@ -178,6 +179,9 @@ body { position: fixed; inset: 0; }
 .opt .oi { font-size: 32px; }
 .opt.on { border-color: var(--pink); background: #fff0f7; box-shadow: 0 0 0 3px #ffd6ec; }
 .opt:active { transform: scale(.95); }
+.opt small { font-size: 11px; line-height: 1.15; opacity: .8; }
+.opt.locked { border-style: dashed; background: #f6f3fb; color: #7d6a99; }
+.hint { font-weight: 700; font-size: 15px; opacity: .75; margin: 14px 2px 0; }
 .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
 .swatch {
   width: 56px; height: 56px; border-radius: 50%; border: 4px solid #fff; box-shadow: 0 0 0 2px #e3d5ff, 0 3px 6px rgba(0, 0, 0, .15);
@@ -229,6 +233,22 @@ body { position: fixed; inset: 0; }
 .menu-item .mi-emoji { font-size: 60px; line-height: 1.1; }
 .menu-item .mi-name { font-weight: 900; font-size: 20px; }
 .menu-item .mi-blurb { font-size: 14px; font-weight: 700; opacity: .7; }
+
+/* sushi conveyor belt: the plates are tapped on the 3D canvas underneath */
+.belt { pointer-events: none; }
+.belt-title {
+  position: absolute; left: 50%; top: calc(16px + var(--sat)); transform: translateX(-50%); white-space: nowrap;
+  background: rgba(255, 255, 255, .95); border: 4px solid #ffd6ec; border-radius: 999px; padding: 10px 26px;
+  font-weight: 900; font-size: 26px; box-shadow: 0 8px 20px rgba(74, 29, 122, .25); animation: popIn .2s ease-out;
+}
+.belt-controls {
+  pointer-events: auto; position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 22px calc(16px + var(--sar)) calc(14px + var(--sab)) calc(16px + var(--sal));
+  background: linear-gradient(180deg, rgba(74, 29, 122, 0), rgba(74, 29, 122, .5) 45%);
+  display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap;
+}
+.belt-speed { display: flex; gap: 8px; }
+.belt-speed .btn.on { background: linear-gradient(180deg, #ffe07a, #ffb703); color: #6b3b00; border-color: #fff; }
 
 /* review viewfinder */
 #screen-review { pointer-events: none; }
@@ -307,6 +327,44 @@ body { position: fixed; inset: 0; }
 .book-page li .fn { flex: 1; }
 .book-page li .st { color: #ffb703; letter-spacing: -1px; }
 .book-page .empty { padding: 18px; text-align: center; font-weight: 800; opacity: .6; }
+
+.book-tabs { margin: 0 0 12px; flex: none; }
+.book-tabs .tab { flex-direction: row; gap: 8px; font-size: 18px; }
+.book-passport { overflow-y: auto; flex: 1; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding: 0 4px 20px; }
+.book-passport .section-title:first-child { margin-top: 4px; }
+.sticker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px 10px; }
+.sticker {
+  font-family: var(--font); background: none; border: 0; padding: 4px 0; min-height: 56px; color: var(--ink);
+  display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; touch-action: manipulation;
+}
+.sticker .st-emoji {
+  width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px; line-height: 1;
+  background: #eee9f5; border: 4px dashed #cfc3e6; filter: grayscale(1); opacity: .5;
+}
+.sticker.got .st-emoji {
+  background: var(--c); border: 5px solid #fff; box-shadow: 0 0 0 4px var(--c), 0 5px 10px rgba(74, 29, 122, .25);
+  filter: none; opacity: 1; transform: rotate(var(--tilt, 0deg));
+}
+.sticker .st-name { font-size: 13px; font-weight: 800; text-align: center; line-height: 1.1; }
+.sticker:not(.got) .st-name { opacity: .6; }
+.sticker:active .st-emoji { transform: scale(.92); }
+.badge-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.badge-card { background: #fff; border-radius: 22px; border: 4px solid #eee3ff; padding: 12px; text-align: center; font-weight: 800; }
+.badge-card.earned { border-color: #ffb703; background: #fffbea; }
+.bd-emoji { font-size: 40px; line-height: 1.1; }
+.bd-name { font-size: 20px; font-weight: 900; }
+.bd-goal { font-size: 14px; opacity: .75; margin: 2px 0 8px; }
+.bd-bar { height: 16px; border-radius: 8px; background: #eee9f5; overflow: hidden; }
+.bd-bar i { display: block; height: 100%; border-radius: 8px; background: linear-gradient(90deg, #ffd23f, #ffb703); }
+.bd-count { font-size: 14px; margin-top: 4px; }
+.bd-prize { display: inline-block; margin-top: 8px; font-size: 16px; padding: 6px 12px; border-radius: 999px; background: #f6f0ff; }
+.badge-card.earned .bd-prize { background: #d3f9d8; }
+
+/* new badge */
+.reward-card { width: min(520px, 96vw); }
+.reward-emoji { font-size: 84px; line-height: 1.1; animation: bob 1.2s ease-in-out infinite; }
+.reward-prize { font-size: 22px; font-weight: 900; margin: 8px 0 18px; color: var(--purple); }
+.reward-actions { display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; }
 
 /* invite */
 .invite-card { width: min(560px, 96vw); }

@@ -5,8 +5,8 @@ import * as THREE from '../vendor/three.module.js';
 import { RESTAURANTS } from './data.js';
 import { mat, signTexture, starsCanvas, checkerTexture, stripeTexture, clamp, mergeStatic } from './util.js';
 
-export const RING_RADIUS = 39; // room for ~20 buildings (each 8–11 wide)
-export const WORLD_RADIUS = 48; // walkable edge; must stay under WORLD_LIMIT (schema.js)
+export const RING_RADIUS = 42; // room for 20 buildings (each 8–11 wide)
+export const WORLD_RADIUS = 51; // walkable edge; must stay under WORLD_LIMIT (schema.js)
 const PLAZA_RADIUS = 16;
 /** Angle of ring slot `i` (fractions sit between buildings). Slot 0 is straight ahead of the spawn point. */
 const ringAngle = (i) => (i / RESTAURANTS.length) * Math.PI * 2 + Math.PI;
@@ -55,7 +55,7 @@ function bench(parent, x, z, ry) {
   parent.add(g);
 }
 
-function flowerPatch(scene, count) {
+function flowerPatch(scene, count, keepClear = []) {
   const g = new THREE.SphereGeometry(0.16, 8, 6);
   const m = new THREE.MeshLambertMaterial();
   const inst = new THREE.InstancedMesh(g, m, count);
@@ -77,7 +77,7 @@ function flowerPatch(scene, count) {
       const across = Math.abs(x * Math.cos(ba) - z * Math.sin(ba));
       return (along > 0 && along < RING_RADIUS && across < 2.2) || Math.hypot(along - RING_RADIUS, across) < 8.5;
     });
-    if (inTheWay) continue;
+    if (inTheWay || keepClear.some((c) => Math.hypot(x - c.x, z - c.z) < c.r)) continue;
     d.position.set(x, 0.18, z);
     d.scale.set(1, 0.6, 1);
     d.updateMatrix();
@@ -218,6 +218,80 @@ const ROOF_PROPS = {
     add(u, sphere(0.24, 10, 8), '#e5383b', 0, 2.98, 0);
     return 3.25;
   },
+  // a big bowl of noodles with an egg, seaweed and chopsticks
+  ramen(b) {
+    add(b, cyl(1.7, 0.9, 1.2, 18), '#2b2d42', 0, 0.6, 0);
+    add(b, cyl(1.74, 1.74, 0.16, 18), '#e63946', 0, 1.2, 0);
+    add(b, cyl(1.56, 1.56, 0.1, 18), '#e9b872', 0, 1.27, 0);
+    for (const [x, z] of [[-0.5, 0.5], [0.55, 0.35], [0, -0.5], [-0.7, -0.35]]) add(b, new THREE.TorusGeometry(0.42, 0.11, 6, 12), '#f6d66b', x, 1.36, z, Math.PI / 2, 0, 0);
+    add(b, sphere(0.42, 10, 8), '#ffffff', 0.75, 1.42, -0.55).scale.set(1, 0.5, 1.25);
+    add(b, sphere(0.22, 8, 6), '#ffb703', 0.75, 1.58, -0.55).scale.y = 0.5;
+    add(b, box(0.9, 1.1, 0.08), '#22382c', -0.7, 1.75, -0.9, -0.25, 0.3, 0);
+    for (const z of [0.1, 0.4]) add(b, cyl(0.07, 0.05, 3.4, 6), '#c98a3c', 1.0, 2.1, z, 0, 0, -0.95);
+    return 3.0;
+  },
+  // a crunchy corn dog standing on its stick, zigzagged with sauce
+  corndog(c) {
+    add(c, cyl(0.12, 0.12, 1.2, 8), '#e9d8a6', 0, 0.6, 0);
+    add(c, new THREE.CapsuleGeometry(0.75, 1.5, 4, 12), '#e8a83e', 0, 2.5, 0);
+    for (let i = 0; i < 5; i++) add(c, box(0.75, 0.16, 0.14), i % 2 ? '#ffd23f' : '#e63946', 0, 1.75 + i * 0.36, 0.72, 0, 0, i % 2 ? 0.55 : -0.55);
+    return 4.0;
+  },
+  // a copper pot of creamy orange curry with a naan to dip
+  curry(p) {
+    add(p, cyl(1.5, 1.0, 1.0, 16), '#d98a3d', 0, 0.5, 0);
+    add(p, cyl(1.56, 1.56, 0.14, 16), '#f2cc8f', 0, 1.0, 0);
+    add(p, sphere(1.4, 14, 8), '#f08a24', 0, 1.0, 0).scale.y = 0.35;
+    add(p, new THREE.TorusGeometry(0.42, 0.09, 6, 14, 4.6), '#fffaf0', 0.1, 1.5, 0.15, Math.PI / 2, 0, 0);
+    for (const x of [-1.6, 1.6]) add(p, new THREE.TorusGeometry(0.3, 0.09, 6, 10), '#f2cc8f', x, 0.75, 0, 0, 0, 0);
+    add(p, sphere(1.0, 12, 8), '#f3d9a4', -0.9, 1.75, -0.7, 0.3, 0, -0.9).scale.set(1, 0.12, 0.7);
+    return 2.6;
+  },
+  // a plate of spaghetti with three giant meatballs
+  meatballs(p) {
+    add(p, cyl(1.9, 1.4, 0.3, 18), '#ffffff', 0, 0.15, 0);
+    add(p, sphere(1.5, 14, 8), '#f6d66b', 0, 0.35, 0).scale.y = 0.5;
+    for (const [x, z] of [[-0.8, 0.6], [0.85, 0.5], [0.1, -0.9], [-0.9, -0.5]]) add(p, new THREE.TorusGeometry(0.4, 0.1, 6, 12), '#ffe08a', x, 0.85, z, Math.PI / 2.3, 0, x);
+    add(p, sphere(0.9, 12, 6), '#d6402b', 0, 1.02, 0).scale.y = 0.4;
+    for (let i = 0; i < 3; i++) add(p, sphere(0.42, 10, 8), '#7a4526', Math.cos(i * 2.1) * 0.5, 1.45, Math.sin(i * 2.1) * 0.5);
+    return 1.95;
+  },
+  // a tall stack of pancakes, syrup and a pat of butter
+  pancakes(p) {
+    for (let i = 0; i < 4; i++) {
+      add(p, cyl(1.6 - i * 0.05, 1.65 - i * 0.05, 0.3, 18), '#f0b860', Math.sin(i * 2.2) * 0.1, 0.16 + i * 0.33, Math.cos(i * 1.7) * 0.1);
+      add(p, cyl(1.45 - i * 0.05, 1.45 - i * 0.05, 0.04, 18), '#c98a3c', Math.sin(i * 2.2) * 0.1, 0.32 + i * 0.33, Math.cos(i * 1.7) * 0.1);
+    }
+    add(p, sphere(1.05, 12, 6), '#8a4b14', 0, 1.33, 0).scale.y = 0.12;
+    for (const a of [0.4, 2.2, 4.1]) add(p, new THREE.CapsuleGeometry(0.13, 0.5, 3, 6), '#8a4b14', Math.cos(a) * 1.55, 0.95, Math.sin(a) * 1.55);
+    add(p, box(0.5, 0.2, 0.5), '#ffe27a', 0.1, 1.5, 0, 0, 0.5, 0);
+    return 1.65;
+  },
+  // a jolly fish leaping out of a splash
+  fish(p) {
+    const f = new THREE.Group();
+    f.position.y = 1.5;
+    f.rotation.z = 0.35;
+    add(f, sphere(1, 14, 10), '#ff922b', 0, 0, 0).scale.set(1.5, 0.85, 0.55);
+    add(f, cone(0.7, 1.0, 4), '#ffd23f', -1.8, 0, 0, 0, 0, -Math.PI / 2).scale.z = 0.35;
+    add(f, cone(0.4, 0.6, 4), '#ffd23f', 0, 0.95, 0).scale.z = 0.3;
+    for (const x of [-0.35, 0.4]) add(f, cyl(0.8, 0.8, 0.16, 12), '#ffffff', x, 0, 0, 0, 0, Math.PI / 2).scale.set(1.05, 1, 0.69); // stripes
+    for (const z of [-1, 1]) {
+      add(f, sphere(0.2, 8, 6), '#ffffff', 0.95, 0.2, z * 0.38);
+      add(f, sphere(0.1, 8, 6), '#2a1a2e', 1.03, 0.2, z * 0.5);
+    }
+    p.add(f);
+    for (const [x, z] of [[-0.9, 0.5], [0.2, -0.6], [0.9, 0.4]]) add(p, sphere(0.55, 10, 6), '#a5d8ff', x, 0.15, z).scale.y = 0.45;
+    return 2.9;
+  },
+  // a stuffed pita pocket
+  pita(p) {
+    add(p, new THREE.CylinderGeometry(1.6, 1.6, 0.85, 16, 1, false, -Math.PI / 2, Math.PI), '#f0cf96', 0, 1.8, 0, Math.PI / 2, 0, 0);
+    for (const x of [-0.95, 0, 0.95]) add(p, sphere(0.5, 8, 6), '#6cc644', x, 1.85, -0.05).scale.set(1.2, 0.5, 0.75);
+    for (let i = 0; i < 4; i++) add(p, new THREE.IcosahedronGeometry(0.3, 0), '#e8b06a', -1.0 + i * 0.67, 2.1, 0.08, i, i * 2, 0);
+    for (const x of [-0.65, 0.65]) add(p, cyl(0.3, 0.3, 0.12, 10), '#e63946', x, 2.05, -0.2, 1.1, 0, 0.3);
+    return 2.45;
+  },
 };
 
 /** Put restaurant r's rooftop prop on shell g at (x, y, z). Returns its top height (0 if it has none). */
@@ -314,13 +388,7 @@ const BUILDERS = {
     door(g, D / 2, '#ffe066');
     windowsRow(g, W, 2.0, D / 2, '#bfe9ff', 2, 5.2);
     const top = roofProp(g, r, 0, 5.03, -0.6);
-    // little side slide
-    const s = new THREE.Group();
-    s.position.set(W / 2 + 1.8, 0, 1);
-    add(s, box(1.2, 2.2, 1.2), '#3a86ff', 0, 1.1, -1.2);
-    add(s, box(1, 0.15, 3), '#ffd23f', 0, 1.1, 0.6, -0.6, 0, 0);
-    g.add(s);
-    return { w: W + 2, d: D, h: Math.max(6.2, top) + 0.7, signY: 3.6, signZ: D / 2 + 0.25 };
+    return { w: W, d: D, h: Math.max(6.2, top) + 0.7, signY: 3.6, signZ: D / 2 + 0.25 };
   },
 
   adobe(g, r) {
@@ -391,7 +459,204 @@ const BUILDERS = {
     }
     return { w: W + 2.4, d: D, h: Math.max(6.4, top) + 0.8, signY: 4.4, signZ: D / 2 + 0.35 };
   },
+
+  castle(g, r) {
+    const W = 9;
+    const D = 7;
+    add(g, box(W - 2, 4.6, D), r.wall, 0, 2.3, 0); // the keep
+    for (let i = 0; i < 5; i++) add(g, box(0.7, 0.6, 0.5), r.wall, -2.8 + i * 1.4, 4.9, D / 2 - 0.25); // battlements
+    // round corner towers with pointy roofs and flags
+    const tz = D / 2 - 1;
+    for (const x of [-(W / 2 - 1), W / 2 - 1]) {
+      add(g, cyl(1.25, 1.25, 6, 14), r.wall, x, 3, tz);
+      add(g, cyl(1.45, 1.45, 0.5, 14), r.trim, x, 6.05, tz);
+      add(g, cone(1.6, 2.0, 14), r.roof, x, 7.3, tz);
+      add(g, cyl(0.05, 0.05, 1.0, 5), '#7b4a2a', x, 8.7, tz);
+      add(g, box(0.7, 0.4, 0.05), r.roof, x + 0.38, 8.95, tz);
+      add(g, box(0.4, 1.0, 0.1), mat('#ffe8a3', { emissive: '#ffb300', emissiveIntensity: 0.3 }), x, 3.6, tz + 1.24); // arrow-slit window
+    }
+    // arched gate
+    add(g, new THREE.TorusGeometry(1.1, 0.22, 8, 20, Math.PI), r.trim, 0, 2.5, D / 2 + 0.1);
+    for (const x of [-1.1, 1.1]) add(g, box(0.44, 2.5, 0.44), r.trim, x, 1.25, D / 2 + 0.1);
+    door(g, D / 2, r.accent, r.trim);
+    const top = roofProp(g, r, 0, 4.6, -0.8);
+    return { w: W + 0.5, d: D, h: Math.max(9.2, top) + 0.4, signY: 4.5, signZ: D / 2 + 0.4 };
+  },
+
+  // a ship that sailed into town: pointed bow, round stern, cabin, funnel and mast
+  boat(g, r) {
+    const D = 6.5;
+    const H = 2.9; // hull height
+    const hull = (hgt, y, grow, color) => {
+      add(g, box(5.6, hgt, D + grow), color, 0, y, 0);
+      add(g, cyl(3.75 + grow * 0.58, 3.75 + grow * 0.58, hgt, 3), color, 3.51, y, 0, 0, Math.PI / 2, 0).scale.z = 0.38;
+      add(g, new THREE.CylinderGeometry((D + grow) / 2, (D + grow) / 2, hgt, 12, 1, false, Math.PI, Math.PI), color, -2.8, y, 0).scale.x = 0.5;
+    };
+    hull(H, H / 2, 0, r.wall);
+    hull(0.4, H - 0.15, 0.12, r.roof); // painted stripe along the deck
+    for (const x of [-1.9, 1.9]) {
+      add(g, new THREE.CircleGeometry(0.62, 18), '#ffffff', x, 1.75, D / 2 + 0.07);
+      add(g, new THREE.CircleGeometry(0.5, 18), mat('#bfe9ff', { emissive: '#5aa9d6', emissiveIntensity: 0.25 }), x, 1.75, D / 2 + 0.08);
+    }
+    door(g, D / 2 + 0.05, '#ffd23f', r.trim);
+    // cabin
+    add(g, box(3.6, 2.2, D - 2.4), r.trim, -0.6, H + 1.1, -0.2);
+    add(g, box(4.0, 0.25, D - 1.8), r.roof, -0.6, H + 2.32, -0.2);
+    for (const x of [-1.7, 0.5]) add(g, box(0.75, 0.75, 0.1), mat('#bfe9ff', { emissive: '#5aa9d6', emissiveIntensity: 0.25 }), x, H + 1.25, 1.86);
+    add(g, new THREE.TorusGeometry(0.4, 0.14, 8, 16), r.roof, -0.6, H + 1.2, 1.92); // life ring
+    add(g, cyl(0.45, 0.55, 1.5, 12), r.roof, -1.7, H + 3.2, -1.6); // funnel
+    add(g, cyl(0.5, 0.52, 0.3, 12), '#ffffff', -1.7, H + 3.6, -1.6);
+    add(g, cyl(0.09, 0.09, 4.2, 6), '#7b4a2a', 3.3, H + 2.1, 0); // mast + pennant
+    add(g, box(0.9, 0.45, 0.05), r.roof, 3.78, H + 3.9, 0);
+    // waves lapping at the hull
+    for (const x of [-4.4, -3.2, -2.1, 2.1, 3.2, 4.4]) {
+      add(g, sphere(0.7, 10, 6), '#74c0fc', x, 0.1, D / 2 + 0.45).scale.y = 0.35;
+      add(g, sphere(0.25, 8, 6), '#ffffff', x + 0.2, 0.3, D / 2 + 0.6).scale.y = 0.5;
+    }
+    const top = roofProp(g, r, 0.2, H + 2.45, 0.2);
+    return { w: 9.9, d: D, h: Math.max(H + 4.3, top) + 0.5, signY: H + 3.15, signZ: 2.2 };
+  },
+
+  // white walls and a round dome, like a seaside village
+  dome(g, r) {
+    const W = 8.5;
+    const D = 7;
+    add(g, box(W, 3.6, D), r.wall, 0, 1.8, 0);
+    add(g, box(W + 0.3, 0.3, D + 0.3), r.trim, 0, 3.75, 0);
+    add(g, new THREE.SphereGeometry(2.3, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), r.roof, 1.9, 3.9, -0.6);
+    add(g, sphere(0.22, 8, 6), '#ffd54f', 1.9, 6.3, -0.6);
+    // sign wall over an arched doorway
+    add(g, box(5.8, 1.5, 0.4), r.wall, 0, 4.65, D / 2 - 0.2);
+    add(g, box(6.1, 0.25, 0.6), r.trim, 0, 5.5, D / 2 - 0.2);
+    add(g, new THREE.TorusGeometry(1.1, 0.2, 8, 20, Math.PI), r.trim, 0, 2.5, D / 2 + 0.1);
+    for (const x of [-1.1, 1.1]) add(g, box(0.4, 2.5, 0.4), r.trim, x, 1.25, D / 2 + 0.1);
+    door(g, D / 2, r.accent, '#ffffff');
+    windowsRow(g, W, 1.9, D / 2, '#bfe9ff', 2, 5.6);
+    for (const x of [-2.8, 2.8]) for (const side of [-1, 1]) add(g, box(0.4, 1.3, 0.1), r.trim, x + side * 0.95, 1.9, D / 2 + 0.06); // shutters
+    // flower pots
+    for (const x of [-3.7, 3.7]) {
+      add(g, cyl(0.4, 0.3, 0.55, 10), '#c96d3b', x, 0.28, D / 2 + 0.9);
+      add(g, new THREE.IcosahedronGeometry(0.5, 1), '#ff5fa2', x, 0.95, D / 2 + 0.9);
+      add(g, new THREE.IcosahedronGeometry(0.32, 1), '#ff8fc7', x + 0.25, 1.3, D / 2 + 0.8);
+    }
+    const top = roofProp(g, r, -2.5, 3.9, -0.6);
+    return { w: W, d: D, h: Math.max(6.5, top) + 0.5, signY: 4.65, signZ: D / 2 + 0.05 };
+  },
+
+  // a red barn with a curvy roof, hay bales and a smoky chimney
+  barn(g, r) {
+    const W = 8.5;
+    const D = 7;
+    add(g, box(W, 3.4, D), r.wall, 0, 1.7, 0);
+    // gambrel roof: half an octagon running front to back, over a wall-colored gable
+    const half = (len, open) => new THREE.CylinderGeometry(1, 1, len, 4, 1, open, -Math.PI / 2, Math.PI);
+    add(g, half(D, false), r.wall, 0, 3.4, 0, -Math.PI / 2, 0, 0).scale.set(W / 2, 1, 2.5);
+    add(g, half(D + 0.9, true), mat(r.roof, { side: THREE.DoubleSide }), 0, 3.45, 0, -Math.PI / 2, 0, 0).scale.set(W / 2 + 0.45, 1, 2.75);
+    for (const x of [-W / 2, W / 2]) add(g, box(0.3, 3.4, 0.3), r.trim, x, 1.7, D / 2);
+    // hayloft window with a white X
+    add(g, box(1.3, 1.1, 0.1), r.trim, 0, 4.75, D / 2 + 0.02);
+    add(g, box(1.0, 0.8, 0.12), r.roof, 0, 4.75, D / 2 + 0.03);
+    for (const rz of [-0.67, 0.67]) add(g, box(1.25, 0.1, 0.14), r.trim, 0, 4.75, D / 2 + 0.04, 0, 0, rz);
+    door(g, D / 2, r.accent, r.trim);
+    for (const rz of [-0.75, 0.75]) add(g, box(1.7, 0.12, 0.2), r.trim, 0, 0.65, D / 2 + 0.02, 0, 0, rz); // barn-door braces
+    windowsRow(g, W, 1.9, D / 2, '#bfe9ff', 2, 5.6);
+    for (const x of [-3.5, 3.5]) add(g, cyl(0.55, 0.55, 1.0, 12), '#f2cc5b', x, 0.55, D / 2 + 0.9, 0, 0, Math.PI / 2); // hay bales
+    // smoker chimney puffing away
+    add(g, cyl(0.3, 0.35, 1.8, 8), '#3b3355', 2.7, 5.2, -1.6);
+    for (let i = 0; i < 3; i++) add(g, sphere(0.4 + i * 0.16, 8, 6), '#f1f3f5', 2.7 + i * 0.35, 6.6 + i * 0.85, -1.6);
+    // rooster weathervane
+    const ridge = 3.45 + 2.75;
+    add(g, cyl(0.05, 0.05, 1.3, 5), '#3b3355', 0, ridge + 0.6, 1.6);
+    add(g, box(1.5, 0.08, 0.08), '#3b3355', 0, ridge + 0.9, 1.6);
+    add(g, sphere(0.32, 10, 8), '#ffd23f', 0, ridge + 1.5, 1.6).scale.set(1.25, 1, 0.5);
+    add(g, sphere(0.19, 8, 6), '#ffd23f', 0.36, ridge + 1.85, 1.6);
+    add(g, sphere(0.1, 6, 4), '#e63946', 0.36, ridge + 2.06, 1.6).scale.set(1.3, 1, 0.5);
+    add(g, cone(0.07, 0.2, 5), '#ff9f1c', 0.6, ridge + 1.83, 1.6, 0, 0, -Math.PI / 2);
+    add(g, cone(0.22, 0.6, 4), '#e63946', -0.5, ridge + 1.75, 1.6, 0, 0, 0.9).scale.z = 0.4;
+    const top = roofProp(g, r, -2.2, 5.2, 0);
+    return { w: W + 0.9, d: D, h: Math.max(ridge + 2.2, top) + 0.4, signY: 3.3, signZ: D / 2 + 0.5 };
+  },
 };
+
+// --------------------------------------------------------------------- playground
+// A slide in the grass between two paths: stairs up one side, a chute down the other.
+// Everything is measured by `s`, the distance along the slide from the foot of the stairs.
+const SLIDE = { start: 20.2, stairs: 3.6, steps: 6, deck: 1.4, chute: 6.6, height: 3.6, lip: 0.9 };
+
+function buildSlide(root, colliders, angle) {
+  const { stairs: L1, steps: STEPS, deck: P, chute: L2, height: H, lip: LIP } = SLIDE;
+  const total = L1 + P + L2;
+  const dir = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle)); // away from the fountain
+  const origin = dir.clone().multiplyScalar(SLIDE.start);
+  const g = new THREE.Group();
+  g.position.copy(origin);
+  g.rotation.y = angle; // local +z runs along the slide
+
+  const run = L1 / STEPS;
+  for (let i = 0; i < STEPS; i++) {
+    const rise = ((i + 1) / STEPS) * H;
+    add(g, box(1.5, rise, run), i % 2 ? '#ff8fc7' : '#ffd23f', 0, rise / 2, (i + 0.5) * run);
+  }
+  const railLen = Math.hypot(L1, H);
+  for (const side of [-0.8, 0.8]) {
+    add(g, box(0.1, 0.1, railLen), '#8b5cf6', side, H / 2 + 1.25, L1 / 2, -Math.atan2(H, L1), 0, 0);
+    add(g, cyl(0.06, 0.06, 1.5, 6), '#8b5cf6', side, 0.75, 0.1);
+  }
+  // deck, tower posts and a pointy roof
+  add(g, box(1.7, 0.25, P), '#8b5cf6', 0, H - 0.125, L1 + P / 2);
+  for (const x of [-0.8, 0.8]) for (const z of [L1 + 0.08, L1 + P - 0.08]) add(g, cyl(0.09, 0.09, H + 2.3, 8), '#5ec8ff', x, (H + 2.3) / 2, z);
+  add(g, cone(1.55, 1.0, 4), '#ff5fa2', 0, H + 2.8, L1 + P / 2, 0, Math.PI / 4, 0);
+  add(g, sphere(0.2, 8, 6), '#ffd23f', 0, H + 3.4, L1 + P / 2);
+  // chute, side rails and a flat lip at the bottom
+  const LOW = 0.3;
+  const chuteLen = Math.hypot(L2, H - LOW);
+  const tilt = Math.atan2(H - LOW, L2);
+  const midY = (H + LOW) / 2;
+  const midZ = L1 + P + L2 / 2;
+  add(g, box(1.3, 0.12, chuteLen), '#ffd23f', 0, midY - 0.06, midZ, tilt, 0, 0);
+  add(g, box(1.3, 0.12, LIP), '#ffd23f', 0, LOW - 0.06, total + LIP / 2);
+  for (const side of [-0.7, 0.7]) {
+    add(g, box(0.12, 0.42, chuteLen), '#3a86ff', side, midY + 0.12, midZ, tilt, 0, 0);
+    add(g, box(0.12, 0.42, LIP), '#3a86ff', side, LOW + 0.12, total + LIP / 2);
+    for (const f of [0.3, 0.64]) add(g, cyl(0.08, 0.08, (1 - f) * H, 6), '#5ec8ff', side * 0.85, ((1 - f) * H) / 2, L1 + P + f * L2);
+  }
+  root.add(g);
+
+  const len = total + LIP;
+  const mid = origin.clone().addScaledVector(dir, len / 2);
+  colliders.push({ type: 'box', x: mid.x, z: mid.z, rot: angle, hw: 1.0, hd: len / 2, low: true });
+  return {
+    dir,
+    yaw: angle,
+    enter: -1.4, // where you start: on the glowing mat at the foot of the stairs
+    top: L1 + P / 2,
+    exit: len + 1.7,
+    foot: origin.clone().addScaledVector(dir, -1.4),
+    /** Surface height `s` units along the slide. */
+    heightAt(s) {
+      if (s <= 0 || s >= len) return 0;
+      if (s < L1) return (Math.ceil(s / run) / STEPS) * H;
+      if (s < L1 + P) return H;
+      if (s < total) return H - ((s - L1 - P) / L2) * (H - LOW);
+      return LOW;
+    },
+    pointAt(s, out) {
+      return out.copy(origin).addScaledVector(dir, s);
+    },
+    /** Circles the flowers should stay out of. */
+    footprint() {
+      const list = [];
+      for (let q = -2; q <= len + 2; q += 1.5) list.push({ x: origin.x + dir.x * q, z: origin.z + dir.z * q, r: 1.9 });
+      return list;
+    },
+  };
+}
+
+// Bounce pads: [ring slot (halves sit between paths), distance from the fountain].
+// The first two sit either side of the fountain, in view from the spawn point; the rest are
+// out in the grass between the paths.
+const PAD_SPOTS = [[13.44, 8.5], [6.56, 8.5], [3.5, 26], [6.5, 27], [9.5, 25], [13.5, 26], [16.5, 27]];
+const PAD_COLORS = ['#ff5fa2', '#ffd23f', '#2ec4b6', '#3a86ff'];
 
 // --------------------------------------------------------------------- world
 export function buildWorld(scene) {
@@ -515,13 +780,9 @@ export function buildWorld(scene) {
     path.position.set(Math.sin(a) * mid, 0.015, Math.cos(a) * mid);
     path.rotation.set(-Math.PI / 2, 0, a);
 
-    // glowing welcome mat at the door
+    // the door, where the glowing welcome mat goes
     const doorDist = dims.d / 2 + 1.3;
     const doorPos = new THREE.Vector3(cx - Math.sin(a) * doorDist, 0, cz - Math.cos(a) * doorDist);
-    const matMesh = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.25, 28), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.6, depthWrite: false }));
-    matMesh.rotation.x = -Math.PI / 2;
-    matMesh.position.set(doorPos.x, 0.05, doorPos.z);
-    scene.add(matMesh);
 
     // floating star rating badge
     const starCanvas = starsCanvas(0, 0);
@@ -535,23 +796,76 @@ export function buildWorld(scene) {
 
     colliders.push({ type: 'box', x: cx, z: cz, rot, hw: dims.w / 2 + 0.2, hd: dims.d / 2 + 0.2 });
     restaurants.push({
-      ...r, index: i, angle: a, center: new THREE.Vector3(cx, 0, cz), door: doorPos, rot, dims, mat: matMesh, star,
+      ...r, index: i, angle: a, center: new THREE.Vector3(cx, 0, cz), door: doorPos, rot, dims, star,
       setStars(avg, count) {
         starsCanvas(avg, count, starCanvas);
         starTex.needsUpdate = true;
       },
     });
   });
-  const MAT_ON = new THREE.Color('#ffe066');
-  const MAT_OFF = new THREE.Color('#ffffff');
-  animated.push((t, near) => {
-    for (const r of restaurants) {
-      const on = near === r;
-      r.mat.material.opacity = on ? 0.75 + Math.sin(t * 8) * 0.25 : 0.45;
-      r.mat.material.color.copy(on ? MAT_ON : MAT_OFF);
-      r.mat.scale.setScalar(on ? 1.15 + Math.sin(t * 8) * 0.08 : 1);
-      r.star.position.y = r.dims.h + 2.2 + Math.sin(t * 1.8 + r.index) * 0.18;
+  animated.push((t) => {
+    for (const r of restaurants) r.star.position.y = r.dims.h + 2.2 + Math.sin(t * 1.8 + r.index) * 0.18;
+  });
+
+  // playground: the slide sits just right of the path to the first restaurant
+  const slide = buildSlide(staticRoot, colliders, ringAngle(N - 0.5));
+  const pads = PAD_SPOTS.map(([slot, dist], i) => {
+    const a = ringAngle(slot);
+    const x = Math.sin(a) * dist;
+    const z = Math.cos(a) * dist;
+    add(staticRoot, cyl(1.3, 1.42, 0.2, 20), '#8b5cf6', x, 0.1, z);
+    add(staticRoot, new THREE.TorusGeometry(1.08, 0.1, 6, 20), '#ffffff', x, 0.24, z, Math.PI / 2, 0, 0);
+    return { index: i, x, z, r: 1.05, hit: false, busy: false, t0: 0 };
+  });
+  // the springy tops are one instanced mesh; a bounce squashes just that pad
+  const padTops = new THREE.InstancedMesh(cyl(1.0, 1.0, 0.14, 20), new THREE.MeshLambertMaterial(), pads.length);
+  const padDummy = new THREE.Object3D();
+  const setPadTop = (pad, squash) => {
+    padDummy.position.set(pad.x, 0.27 - (1 - squash) * 0.07, pad.z);
+    padDummy.scale.set(1, squash, 1);
+    padDummy.updateMatrix();
+    padTops.setMatrixAt(pad.index, padDummy.matrix);
+  };
+  for (const pad of pads) {
+    setPadTop(pad, 1);
+    padTops.setColorAt(pad.index, new THREE.Color(PAD_COLORS[pad.index % PAD_COLORS.length]));
+  }
+  scene.add(padTops);
+  animated.push((t) => {
+    for (const pad of pads) {
+      if (pad.hit) {
+        pad.hit = false;
+        pad.busy = true;
+        pad.t0 = t;
+      }
+      if (!pad.busy) continue;
+      const age = t - pad.t0;
+      pad.busy = age < 0.7;
+      setPadTop(pad, pad.busy ? 1 - 0.6 * Math.cos(age * 24) * Math.exp(-age * 8) : 1);
+      padTops.instanceMatrix.needsUpdate = true;
     }
+  });
+
+  // glowing welcome mats: one instanced ring for every door and the slide, plus one highlight
+  const matSpots = [...restaurants.map((r) => r.door), slide.foot];
+  const ringGeo = new THREE.RingGeometry(0.9, 1.25, 28).rotateX(-Math.PI / 2);
+  const mats = new THREE.InstancedMesh(ringGeo, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.45, depthWrite: false }), matSpots.length);
+  matSpots.forEach((spot, i) => {
+    padDummy.position.set(spot.x, 0.05, spot.z);
+    padDummy.scale.set(1, 1, 1);
+    padDummy.updateMatrix();
+    mats.setMatrixAt(i, padDummy.matrix);
+  });
+  scene.add(mats);
+  const glow = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: '#ffe066', transparent: true, depthWrite: false }));
+  glow.visible = false;
+  scene.add(glow);
+  animated.push((t, spot) => {
+    glow.visible = !!spot;
+    if (!spot) return;
+    glow.position.set(spot.x, 0.06, spot.z);
+    glow.material.opacity = 0.75 + Math.sin(t * 8) * 0.25;
+    glow.scale.setScalar(1.15 + Math.sin(t * 8) * 0.08);
   });
 
   // trees between restaurants and around the edge
@@ -580,7 +894,7 @@ export function buildWorld(scene) {
     const a = (i / hedges) * Math.PI * 2;
     add(staticRoot, new THREE.IcosahedronGeometry(1.3, 1), i % 2 ? '#56b85f' : '#62c46b', Math.sin(a) * HEDGE_RADIUS, 0.8, Math.cos(a) * HEDGE_RADIUS).scale.y = 0.75;
   }
-  flowerPatch(scene, 200);
+  flowerPatch(scene, 200, [...slide.footprint(), ...pads.map((pad) => ({ x: pad.x, z: pad.z, r: 2 }))]);
 
   // clouds
   const clouds = new THREE.Group();
@@ -589,6 +903,7 @@ export function buildWorld(scene) {
     const a = (i / 9) * Math.PI * 2;
     c.position.set(Math.sin(a) * 60, 26 + (i % 3) * 4, Math.cos(a) * 60);
     for (let j = 0; j < 4; j++) add(c, sphere(2.4 + (j % 2), 10, 8), mat('#ffffff', { emissive: '#ffffff', emissiveIntensity: 0.35 }), j * 2.2 - 3.3, (j % 2) * 0.8, 0);
+    mergeStatic(c); // one draw call per cloud
     clouds.add(c);
   }
   scene.add(clouds);
@@ -604,8 +919,20 @@ export function buildWorld(scene) {
     restaurants,
     colliders,
     interior,
-    update(t, nearRestaurant) {
-      for (const fn of animated) fn(t, nearRestaurant);
+    slide,
+    pads,
+    /** The bounce pad under (x, z), if any. `slack` widens it (friends' positions arrive a little late). */
+    padAt(x, z, slack = 0) {
+      for (const pad of pads) if (Math.hypot(x - pad.x, z - pad.z) < pad.r + slack) return pad;
+      return null;
+    },
+    /** Squash a pad's springy top (someone just bounced on it). */
+    bouncePad(pad) {
+      pad.hit = true;
+    },
+    /** `spot` is the door or slide mat the player is standing at (it glows), or null. */
+    update(t, spot) {
+      for (const fn of animated) fn(t, spot);
     },
     /** Push a circle of radius `rad` at pos (Vector3, mutated) out of colliders. */
     resolve(pos, rad = 0.45) {
@@ -656,7 +983,7 @@ export function buildWorld(scene) {
     /** True if point is inside a building (used to keep the camera out of walls). */
     blocked(x, z, pad = 0.3) {
       for (const c of colliders) {
-        if (c.type !== 'box') continue;
+        if (c.type !== 'box' || c.low) continue;
         const cs = Math.cos(c.rot);
         const sn = Math.sin(c.rot);
         const dx = x - c.x;
@@ -675,9 +1002,9 @@ function buildInterior(scene) {
   scene.add(g);
 
   const floorMat = new THREE.MeshLambertMaterial({ map: checkerTexture('#ffffff', '#ffd6e8', 8) });
-  const floor = add(g, new THREE.PlaneGeometry(14, 10), floorMat, 0, 0, 0, -Math.PI / 2);
+  const floor = add(g, new THREE.PlaneGeometry(14, 14), floorMat, 0, 0, 2, -Math.PI / 2);
   floor.material.map.wrapS = floor.material.map.wrapT = THREE.RepeatWrapping;
-  floor.material.map.repeat.set(3, 2);
+  floor.material.map.repeat.set(3, 2.8);
 
   const wallMat = new THREE.MeshLambertMaterial({ color: '#ffe1d6' });
   add(g, new THREE.PlaneGeometry(14, 6), wallMat, 0, 3, -3);

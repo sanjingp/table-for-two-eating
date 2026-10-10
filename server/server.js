@@ -11,7 +11,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  ANIMS, EMOTES, LINES, WORLD_LIMIT, sanitizeAppearance, isValidRoom,
+  ANIMS, EMOTES, LINES, WORLD_LIMIT, HEIGHT_LIMIT, sanitizeAppearance, isValidRoom,
 } from '../public/js/schema.js';
 
 const ROOT = path.resolve(fileURLToPath(new URL('../public', import.meta.url)));
@@ -160,10 +160,16 @@ export function validateClientMessage(msg) {
     case 'st': {
       if (!isNum(msg.x) || !isNum(msg.z) || !isNum(msg.ry)) return null;
       if (typeof msg.an !== 'string' || !ANIMS.includes(msg.an)) return null;
+      // height off the ground (bounce pads, the slide): optional, never below the ground or sky-high
+      const y = msg.y === undefined ? 0 : msg.y;
+      if (!isNum(y)) return null;
       let ry = msg.ry % (Math.PI * 2);
       if (ry > Math.PI) ry -= Math.PI * 2;
       if (ry < -Math.PI) ry += Math.PI * 2;
-      return { t: 'st', x: round2(clampNum(msg.x, WORLD_LIMIT)), z: round2(clampNum(msg.z, WORLD_LIMIT)), ry: round2(ry), an: msg.an };
+      return {
+        t: 'st', x: round2(clampNum(msg.x, WORLD_LIMIT)), z: round2(clampNum(msg.z, WORLD_LIMIT)), ry: round2(ry), an: msg.an,
+        y: round2(Math.max(0, Math.min(HEIGHT_LIMIT, y))),
+      };
     }
     case 'emo':
       return typeof msg.e === 'string' && EMOTES.includes(msg.e) ? { t: 'emo', e: msg.e } : null;
@@ -275,7 +281,7 @@ function onConnection(ws, room, ip) {
 
     switch (msg.t) {
       case 'st':
-        client.st = { x: msg.x, z: msg.z, ry: msg.ry, an: msg.an };
+        client.st = { x: msg.x, z: msg.z, ry: msg.ry, an: msg.an, y: msg.y };
         broadcast(room, { t: 'st', id: client.id, ...client.st }, client);
         break;
       case 'emo':

@@ -5,7 +5,7 @@
 - [x] Server (`server/server.js`): static files (gzip, ETag, CSP, no-referrer) + WebSocket relay `/ws?room=CODE`
   - strict schema validation via shared `public/js/schema.js`, unknown fields dropped, 4 KB cap,
     token-bucket rate limits + strike budget, 8 players/room, per-IP + global caps, hello timeout, heartbeat
-- [x] 3D town: plaza, fountain, welcome arch, 12 original restaurant buildings with canvas-text signs,
+- [x] 3D town: plaza, fountain, welcome arch, 20 original restaurant buildings with canvas-text signs,
       floating star badges, trees/flowers/hedges/clouds; static scenery merged per material (few draw calls)
 - [x] Character: 7 hair styles, eye color, skin slider (realistic gradient), tops/jackets/bottoms/shoes
       (incl. light-up), per-limb mesh merging; creator + closet "studio" with live 3D preview
@@ -44,9 +44,34 @@
   - Added an end-to-end regression for bite → emote → bite; it failed before the fix. Full `npm test` now passes,
     including multiplayer reaction relay, server message validation, Mystery Plate and the iPad draw-call budget.
 
+- [x] **Phase 2 of `ideas-v2.md` (Oct 10 2026)**
+  - 8 more made-up restaurants, 20 in all: Noodle Ninja (pagoda), Seoul Bites (deli), Curry Castle, Pasta Porch (cottage),
+    Sunny Breakfast Cafe (diner), Fish & Ships, Pita Picnic, Cozy BBQ. Four new original shells: `castle` (towers and flags),
+    `boat` (hull, cabin, funnel, mast, waves), `dome` (white walls, round dome) and `barn` (gambrel roof, rooster weathervane).
+    Seven new rooftop props (ramen, corn dog, curry pot, meatballs, pancakes, fish, pita).
+  - 27 new foods, each with its own 3D model (71 in total). New reactions: shaved ice and mango lassi are `cold`, orange juice is `sour`.
+  - Town: `RING_RADIUS` 39 → 42 and `WORLD_RADIUS` 48 → 51 so 20 buildings fit without touching (the test checks footprints);
+    walk speed 6.5 → 7 to make up for it. The diner's decorative side slide is gone (the real slide replaced it).
+  - Sushi conveyor belt at Sakura Sushi (`belt: true` in `data.js`, code in `belt.js`): going in opens on the belt instead of the menu.
+    Plates glide past and a touch on the 3D canvas grabs the one under the finger (ray pick with a generous radius), it hops to
+    the table and the review starts. 🐢 Relaxed / 🐇 Fast speeds (remembered in settings), "Skip to the menu" and, on the menu,
+    "Back to the belt". One plate is a silver dome = Mystery Plate. The counter sinks into the floor while a review is filmed.
+  - Sticker passport (`passport.js`, first tab of 📖 My Reviews): a sticker for the first review at each restaurant, and 3 badges
+    that each unlock a hat: Taste Tester (3 stickers → chef hat), Menu Master (every food at one restaurant → sunglasses),
+    Town Tour (10 stickers → crown). A new badge pops up back in the plaza with "Wear it!". Hats live in a new closet tab,
+    locked ones say how to earn them. Reviews now store the food id (`fid`); older ones are matched by name.
+  - Hats are part of the appearance (`hat` enum in `schema.js`), so they sync through the existing validated `app` message.
+    A page from before the update that sends no `hat` still connects (it counts as `none`).
+  - Playground: 7 bounce pads (2 by the fountain, 5 in the grass) launch you about two reviewers high, and keep bouncing while
+    you stand on them. A slide stands right of the path to Sakura Sushi: walk to its glowing mat, tap "🎢 Slide!", climb, whee.
+  - Friends see bounces and slide rides: `st` messages carry a height `y` (server clamps it to 0–`HEIGHT_LIMIT`, optional so
+    older pages still work) and two new `ANIMS`, `air` and `slide`.
+  - Fewer draw calls: door mats are one instanced ring plus one highlight (was a mesh per door); each cloud is merged.
+  - `npm test` extended: 20 restaurants and no overlapping footprints, playground (both pages), belt speeds / skip / tapping a
+    plate / the dome, passport rules, locked hats, badge → hat → friend sees it, server checks for `hat` and `y`.
+  - Test view with two players: 136 → 152 draw calls, 68k → 81k triangles (budget 160 / 110k). Belt view: 87 draw calls.
+
 ## Next (ideas-v2.md)
-- Phase 2: the other 8 restaurants (Noodle Ninja, Seoul Bites, Curry Castle, Pasta Porch, Sunny Café, Fish & Ships,
-  Pita Picnic, Cozy BBQ), sushi conveyor belt, sticker passport + hats, bounce pads + working slide
 - Phase 3: race to a restaurant, pets, scooter, ingredient hunt
 - Phase 4: build-your-own pizza/sundae, friend as co-host
 - Older ideas: background music toggle, pinch-to-zoom camera
@@ -57,7 +82,11 @@
 - New menu emoji are kept to Unicode 11 or older. A few older ones are newer than that (🧃 juice, 🩳 shorts,
   🩴 sandals) and may show as boxes on iPads stuck on iOS 13 or earlier.
 - The town is a longer walk now (about 5 s from the fountain to a door); the scooter is planned for Phase 3.
-- With 20 buildings the ring is snug: two of the widest shells (diner, mission) side by side would nearly touch.
+- The ring is full at 20 buildings: a 21st would need a bigger `RING_RADIUS` (the footprint test will say so).
+- Hats are only checked on the player's own device (badges come from reviews in localStorage); the server just checks the
+  enum. A tinkerer could wear a crown early, which is harmless.
+- Software-rendered test runs are several times slower than an iPad, so the playground checks use long timeouts.
+- Draw calls in the two-player test view (152) are close to the 160 budget; new static colors add one call each.
 
 ## Hosting attempt (Grok Bot, Oct 9 2026)
 - Tried no-account Cloudflare quick tunnel: box network blocks Cloudflare edge (QUIC and TCP 7844). No ssh client for localhost.run.

@@ -455,6 +455,357 @@ const BUILDERS = {
     add(g, sphere(0.062, 14, 10), '#ffc2d9', [0, 0.365, 0]);
     strawberry(g, 0, 0.44, 0, 1.1);
   },
+
+  // ---------------------------------------------------------------- Noodle Ninja
+  ramen(g) {
+    const r = bowl(g, '#2b2d42', 0.21);
+    add(g, cyl(r * 0.95, r * 0.95, 0.012, 18), '#e9b872', [0, r * 0.86, 0]); // broth
+    scatter(g, 12, torus(0.04, 0.009, 5, 12), [C.noodle, '#ffe08a'], 0.1, r * 0.87, 53);
+    // half an egg, a pink-dot fish cake, a sheet of seaweed and green onion
+    add(g, sphere(0.05, 10, 8), '#ffffff', [-0.09, r * 0.91, 0.07], [0, 0, 0], [1, 0.5, 1.25]);
+    add(g, sphere(0.026, 8, 6), '#ffb703', [-0.09, r * 0.91 + 0.018, 0.07], [0, 0, 0], [1, 0.5, 1]);
+    add(g, cyl(0.045, 0.045, 0.012, 10), '#ffffff', [0.09, r * 0.92, 0.08], [0.2, 0, 0]);
+    add(g, cyl(0.018, 0.018, 0.014, 8), '#ff7aa8', [0.09, r * 0.92 + 0.002, 0.08], [0.2, 0, 0]);
+    add(g, box(0.11, 0.13, 0.008), C.nori, [0.02, r * 0.9 + 0.05, -0.13], [-0.25, 0.2, 0]);
+    scatter(g, 6, cyl(0.012, 0.012, 0.008, 6), ['#57cc2e'], 0.08, r * 0.9, 59);
+    add(g, cyl(0.008, 0.008, 0.45, 5), '#a0522d', [0.1, 0.3, -0.04], [0, 0, -0.9]);
+    add(g, cyl(0.008, 0.008, 0.45, 5), '#a0522d', [0.1, 0.3, 0], [0, 0, -0.95]);
+  },
+  gyoza(g) {
+    add(g, box(0.52, 0.014, 0.2), '#3d405b', [0, 0.007, 0.03]); // slate plate
+    for (let i = 0; i < 5; i++) {
+      const d = new THREE.Group();
+      d.position.set((i - 2) * 0.098, 0.014, 0.03);
+      d.rotation.y = 0.25;
+      add(d, sphere(0.06, 10, 8), C.dough, [0, 0.03, 0], [0, 0, 0], [0.62, 0.62, 1.35]); // crescent
+      add(d, sphere(0.056, 10, 6), C.golden, [0, 0.011, 0], [0, 0, 0], [0.64, 0.3, 1.32]); // pan-fried bottom
+      for (let k = -2; k <= 2; k++) add(d, sphere(0.014, 6, 4), C.dough, [0, 0.066 - Math.abs(k) * 0.008, k * 0.026]); // pleats
+      g.add(d);
+    }
+    add(g, cyl(0.05, 0.04, 0.03, 12), '#ffffff', [0, 0.015, -0.16]); // dipping sauce
+    add(g, cyl(0.042, 0.042, 0.005, 12), '#3d2b1f', [0, 0.031, -0.16]);
+  },
+  riceball(g) {
+    [[-0.1, 0.03, 0.15, true], [0.11, -0.02, -0.35, false]].forEach(([x, z, ry, plum]) => {
+      const b = new THREE.Group();
+      b.position.set(x, 0, z);
+      b.rotation.y = ry;
+      add(b, cyl(0.125, 0.125, 0.08, 3), C.rice, [0, 0.068, 0], [Math.PI / 2, Math.PI, 0]); // triangle, point up
+      add(b, sphere(0.08, 10, 8), C.rice, [0, 0.07, 0], [0, 0, 0], [1, 0.9, 0.62]); // puffed middle
+      add(b, box(0.075, 0.075, 0.086), C.nori, [0, 0.04, 0]); // seaweed strip to hold it by
+      if (plum) add(b, sphere(0.02, 8, 6), '#e0577a', [0, 0.115, 0.04]);
+      g.add(b);
+    });
+    for (let i = 0; i < 3; i++) add(g, cyl(0.032, 0.032, 0.008, 10), '#ffd23f', [0.02 + i * 0.022, 0.006 + i * 0.006, 0.17], [0.15 * i, 0, 0.1]); // pickles
+  },
+
+  // ---------------------------------------------------------------- Seoul Bites
+  corndog(g) {
+    [[-0.01, 0.075, 0.2], [0.03, -0.075, -0.15]].forEach(([x, z, ry], n) => {
+      const d = new THREE.Group();
+      d.position.set(x, 0.06, z);
+      d.rotation.y = ry;
+      add(d, new THREE.CapsuleGeometry(0.055, 0.2, 4, 10), C.golden, [0.06, 0, 0], [0, 0, Math.PI / 2]);
+      for (let i = 0; i < 12; i++) add(d, sphere(0.015, 5, 4), '#f4c56a', [-0.07 + i * 0.024, Math.sin(i * 2.1 + n) * 0.048, Math.cos(i * 2.1 + n) * 0.052]); // crunchy bits
+      add(d, cyl(0.011, 0.011, 0.2, 6), '#e9d8a6', [-0.17, 0, 0], [0, 0, Math.PI / 2]); // stick
+      for (let i = 0; i < 6; i++) add(d, box(0.05, 0.008, 0.012), i % 2 ? '#ffd23f' : C.red, [-0.05 + i * 0.044, 0.056, 0], [0, i % 2 ? 0.9 : -0.9, 0]); // zigzag sauce
+      g.add(d);
+    });
+  },
+  kimbap(g) {
+    const piece = { wrap: C.nori, top: C.rice, topR: 0.05, fill: ['#ffd23f', C.carrot, '#3fa34d'], r: 0.06 };
+    for (let i = 0; i < 5; i++) makiPiece(g, (i - 2) * 0.112, 0.06 - Math.abs(i - 2) * 0.014, piece);
+    for (const x of [-0.058, 0.058]) makiPiece(g, x, -0.07, piece);
+    scatter(g, 8, sphere(0.006, 4, 3), ['#fff3c4'], 0.2, 0.08, 107); // sesame seeds
+    for (let i = 0; i < 3; i++) add(g, cyl(0.035, 0.035, 0.008, 10, 0, Math.PI), '#ffd23f', [-0.03 + i * 0.03, 0.006 + i * 0.005, -0.19], [0, 0.3 * i, 0]); // pickled radish
+  },
+  mandu(g) {
+    // bamboo steamer basket
+    add(g, new THREE.CylinderGeometry(0.21, 0.21, 0.1, 18, 1, true), paint('#d9a05b', { side: THREE.DoubleSide }), [0, 0.05, 0]);
+    add(g, cyl(0.205, 0.205, 0.02, 18), '#f3dca6', [0, 0.02, 0]);
+    for (const y of [0.03, 0.1]) add(g, torus(0.212, 0.012, 6, 20), '#b07a3c', [0, y, 0], [Math.PI / 2, 0, 0]);
+    const spots = [[0, 0]];
+    for (let i = 0; i < 4; i++) spots.push([Math.cos(i * 1.57 + 0.5) * 0.115, Math.sin(i * 1.57 + 0.5) * 0.115]);
+    for (const [x, z] of spots) {
+      add(g, sphere(0.06, 12, 8), C.dough, [x, 0.08, z], [0, 0, 0], [1, 0.85, 1]);
+      add(g, cone(0.024, 0.04, 6), C.dough, [x, 0.143, z]); // twisted top
+      add(g, sphere(0.014, 6, 4), C.dough, [x, 0.165, z]);
+    }
+  },
+  shavedice(g) {
+    add(g, cyl(0.06, 0.085, 0.014, 14), C.glass, [0, 0.007, 0]);
+    add(g, cyl(0.16, 0.07, 0.09, 16), C.glass, [0, 0.059, 0]);
+    add(g, sphere(0.15, 14, 10), '#ffffff', [0, 0.13, 0], [0, 0, 0], [1, 0.75, 1]); // snowy mountain
+    add(g, cone(0.1, 0.13, 12), '#f4fbff', [0, 0.26, 0]);
+    add(g, sphere(0.085, 10, 6), '#ff7aa8', [-0.04, 0.235, 0.035], [0, 0, 0], [1, 0.5, 1]); // strawberry syrup
+    add(g, sphere(0.07, 10, 6), C.mango, [0.055, 0.21, -0.03], [0, 0, 0], [1, 0.5, 1]); // mango syrup
+    strawberry(g, 0, 0.345, 0, 1.1);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const at = [Math.cos(a) * 0.125, 0.125, Math.sin(a) * 0.125];
+      if (i % 3 === 0) add(g, box(0.036, 0.036, 0.036), C.mango, at, [0.4, a, 0.3]);
+      else if (i % 3 === 1) add(g, sphere(0.022, 8, 6), C.cream, at); // chewy rice cake
+      else add(g, cyl(0.026, 0.026, 0.012, 10), '#8ac926', at, [0.9, a, 0]); // kiwi
+    }
+  },
+
+  // ---------------------------------------------------------------- Curry Castle
+  butterchicken(g) {
+    const b = new THREE.Group();
+    b.position.set(-0.08, 0, 0);
+    const r = bowl(b, '#d98a3d', 0.16); // copper bowl
+    add(b, sphere(r * 0.93, 16, 8), '#f08a24', [0, r * 0.78, 0], [0, 0, 0], [1, 0.36, 1]); // creamy sauce
+    scatter(b, 7, new THREE.IcosahedronGeometry(0.034, 0), ['#f3b56b', '#e89b4c'], 0.09, r * 0.98, 61);
+    add(b, torus(0.04, 0.008, 5, 14, 4.6), C.cream, [0.01, r * 1.13, 0.02], [Math.PI / 2, 0, 0]); // swirl of cream
+    scatter(b, 5, box(0.02, 0.004, 0.014), ['#3fa34d'], 0.09, r * 1.12, 67);
+    g.add(b);
+    const rice = new THREE.Group(); // rice on the side
+    rice.position.set(0.19, 0, 0.02);
+    add(rice, sphere(0.095, 12, 8), C.rice, [0, 0.03, 0], [0, 0, 0], [1, 0.75, 1]);
+    scatter(rice, 4, box(0.014, 0.014, 0.014), [C.pea], 0.04, 0.095, 113);
+    g.add(rice);
+  },
+  naan(g) {
+    for (let i = 0; i < 3; i++) {
+      const n = new THREE.Group();
+      n.position.set((i - 1) * 0.035, 0.018 + i * 0.026, (i - 1) * -0.03);
+      n.rotation.set(0.05 * (i - 1), i * 0.9, 0);
+      add(n, sphere(0.2, 14, 8), '#f3d9a4', [0, 0, 0], [0, 0, 0], [1, 0.085, 0.72]); // teardrop flatbread
+      add(n, sphere(0.09, 10, 6), '#f3d9a4', [0.17, 0, 0], [0, 0, 0], [1, 0.19, 0.9]);
+      for (let k = 0; k < 5; k++) add(n, sphere(0.026, 6, 4), '#b9773a', [Math.cos(k * 2.3 + i) * 0.1, 0.012, Math.sin(k * 2.3 + i) * 0.07], [0, 0, 0], [1.3, 0.25, 1]); // toasty bubbles
+      g.add(n);
+    }
+    add(g, sphere(0.05, 8, 6), '#ffe27a', [0.02, 0.088, -0.02], [0, 0, 0], [1.2, 0.15, 1]); // melted butter
+    scatter(g, 6, box(0.016, 0.004, 0.01), ['#3fa34d'], 0.1, 0.09, 71);
+  },
+  samosa(g) {
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.3;
+      const x = Math.cos(a) * 0.135;
+      const z = Math.sin(a) * 0.135;
+      add(g, cone(0.105, 0.15, 3), C.golden, [x, 0.075, z], [0, a * 1.7, 0], [1, 1, 0.8]);
+      add(g, cone(0.11, 0.03, 3), '#c98a3c', [x, 0.015, z], [0, a * 1.7, 0], [1, 1, 0.8]); // crimped edge
+    }
+    add(g, cyl(0.055, 0.045, 0.04, 12), '#ffffff', [0, 0.02, 0]); // mint chutney
+    add(g, cyl(0.047, 0.047, 0.006, 12), '#5aa02c', [0, 0.041, 0]);
+  },
+  lassi(g) {
+    add(g, cyl(0.062, 0.075, 0.012, 14), '#c2185b', [0, 0.006, 0]); // coaster
+    add(g, cyl(0.08, 0.06, 0.25, 16), '#ffb52e', [0, 0.137, 0]);
+    add(g, cyl(0.083, 0.083, 0.03, 16), C.cream, [0, 0.274, 0]); // frothy top
+    scatter(g, 6, box(0.012, 0.006, 0.012), ['#7fb23a'], 0.05, 0.288, 73); // pistachio
+    add(g, cyl(0.05, 0.05, 0.014, 10, 0, Math.PI), C.mango, [0.075, 0.285, 0], [0, Math.PI / 2, Math.PI / 2]); // mango slice
+    add(g, cyl(0.012, 0.012, 0.3, 6), '#2ec4b6', [-0.02, 0.33, -0.02], [0, 0, 0.2]);
+  },
+
+  // ---------------------------------------------------------------- Pasta Porch
+  spaghetti(g) {
+    add(g, cyl(0.25, 0.17, 0.035, 20), '#fdf6ec', [0, 0.0175, 0]); // pasta dish
+    add(g, sphere(0.18, 16, 8), C.noodle, [0, 0.05, 0], [0, 0, 0], [1, 0.42, 1]);
+    scatter(g, 16, torus(0.045, 0.009, 5, 12), [C.noodle, '#ffe08a'], 0.13, 0.095, 127);
+    add(g, sphere(0.1, 12, 6), '#d6402b', [0, 0.118, 0], [0, 0, 0], [1, 0.4, 1]); // tomato sauce
+    for (let i = 0; i < 3; i++) add(g, sphere(0.042, 10, 8), '#7a4526', [Math.cos(i * 2.1) * 0.06, 0.158, Math.sin(i * 2.1) * 0.06]); // meatballs
+    add(g, sphere(0.03, 8, 6), '#3fa34d', [0, 0.2, 0], [0.3, 0, 0], [1, 0.15, 0.6]); // basil leaf
+    scatter(g, 8, box(0.01, 0.006, 0.01), ['#fff8dc'], 0.1, 0.165, 131); // parmesan
+  },
+  ravioli(g) {
+    add(g, cyl(0.24, 0.24, 0.012, 18), '#d6402b', [0, 0.006, 0]); // pool of tomato sauce
+    const pillow = (x, y, z, ry) => {
+      const p = new THREE.Group();
+      p.position.set(x, y, z);
+      p.rotation.set(0.1, ry, 0);
+      add(p, box(0.12, 0.016, 0.12), '#ffe9a8'); // crimped square edge
+      add(p, sphere(0.045, 8, 6), '#fff2c4', [0, 0.01, 0], [0, 0, 0], [1, 0.5, 1]); // puffy cheese middle
+      g.add(p);
+    };
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      pillow(Math.cos(a) * 0.14, 0.022 + (i % 2) * 0.008, Math.sin(a) * 0.14, 0.4 - a);
+    }
+    pillow(0, 0.045, 0, 0.6);
+    for (const [x, z] of [[0.05, 0.06], [-0.07, -0.02]]) add(g, sphere(0.028, 8, 6), '#3fa34d', [x, 0.062, z], [0.2, x * 9, 0], [1, 0.15, 0.6]); // basil
+    scatter(g, 10, box(0.01, 0.006, 0.01), ['#fffdf0'], 0.17, 0.05, 137);
+  },
+  garlicbread(g) {
+    for (let i = 0; i < 4; i++) {
+      const s = new THREE.Group();
+      s.position.set(-0.18 + i * 0.12, 0.088, 0.02 - i * 0.012);
+      s.rotation.set(0, -0.7, -0.5); // leaning like dominoes, buttery side to the camera
+      s.scale.setScalar(1.25);
+      add(s, cyl(0.085, 0.085, 0.04, 14), C.crust, [0, 0, 0], [0, 0, Math.PI / 2], [1, 1, 0.75]);
+      add(s, cyl(0.07, 0.07, 0.006, 14), '#ffe9a8', [0.021, 0, 0], [0, 0, Math.PI / 2], [1, 1, 0.75]); // garlic butter
+      for (let k = 0; k < 4; k++) add(s, box(0.004, 0.012, 0.012), '#3fa34d', [0.026, Math.cos(k * 1.9) * 0.035, Math.sin(k * 1.9) * 0.028]); // parsley
+      g.add(s);
+    }
+  },
+
+  // ---------------------------------------------------------------- Sunny Breakfast Cafe
+  pancakes(g) {
+    for (let i = 0; i < 4; i++) {
+      const x = Math.sin(i * 2.2) * 0.012;
+      const z = Math.cos(i * 1.7) * 0.012;
+      add(g, cyl(0.17 - i * 0.006, 0.175 - i * 0.006, 0.03, 18), '#f0b860', [x, 0.016 + i * 0.032, z]);
+      add(g, cyl(0.155 - i * 0.006, 0.155 - i * 0.006, 0.004, 18), '#c98a3c', [x, 0.032 + i * 0.032, z]); // browned top
+    }
+    add(g, sphere(0.11, 12, 6), '#8a4b14', [0, 0.131, 0], [0, 0, 0], [1, 0.1, 1]); // maple syrup
+    for (const a of [0.4, 2.2, 4.1]) add(g, new THREE.CapsuleGeometry(0.014, 0.05, 3, 6), '#8a4b14', [Math.cos(a) * 0.163, 0.095, Math.sin(a) * 0.163]); // drips
+    add(g, box(0.05, 0.02, 0.05), '#ffe27a', [0.01, 0.148, 0], [0, 0.5, 0]); // butter
+    for (const [x, z] of [[-0.07, 0.05], [0.06, 0.07], [-0.02, -0.08]]) add(g, sphere(0.018, 8, 6), '#3f51b5', [x, 0.15, z]); // blueberries
+  },
+  waffles(g) {
+    const waffle = (x, y, z, rot) => {
+      const w = new THREE.Group();
+      w.position.set(x, y, z);
+      w.rotation.set(...rot);
+      add(w, box(0.26, 0.03, 0.26), '#d9952f');
+      for (let i = 0; i < 5; i++) {
+        const o = -0.12 + i * 0.06;
+        add(w, box(0.26, 0.022, 0.018), '#f6c65b', [0, 0.022, o]);
+        add(w, box(0.018, 0.022, 0.26), '#f6c65b', [o, 0.022, 0]);
+      }
+      g.add(w);
+    };
+    waffle(-0.03, 0.016, 0.02, [0, 0.2, 0]);
+    waffle(0.06, 0.085, -0.03, [0, -0.5, 0.3]); // the second one leans on the first
+    add(g, sphere(0.045, 10, 8), C.cream, [-0.07, 0.075, 0.06], [0, 0, 0], [1, 0.7, 1]);
+    add(g, cone(0.025, 0.035, 8), C.cream, [-0.07, 0.115, 0.06]);
+    strawberry(g, -0.07, 0.155, 0.06);
+    add(g, sphere(0.06, 10, 6), '#8a4b14', [-0.1, 0.05, -0.06], [0, 0, 0], [1, 0.12, 1]); // syrup puddle
+  },
+  eggsbacon(g) {
+    // a smiley face: two sunny-side-up eyes and a wavy bacon smile
+    for (const s of [-1, 1]) {
+      add(g, sphere(0.085, 12, 6), '#ffffff', [s * 0.1, 0.012, -0.08], [0, 0, 0], [1.1, 0.14, 1]);
+      add(g, sphere(0.05, 8, 6), '#ffffff', [s * 0.155, 0.012, -0.04], [0, 0, 0], [1, 0.14, 1]);
+      add(g, sphere(0.036, 10, 8), '#ffb703', [s * 0.1, 0.026, -0.08], [0, 0, 0], [1, 0.6, 1]);
+    }
+    for (let i = 0; i < 7; i++) {
+      const a = (i - 3) * 0.36;
+      add(g, box(0.075, 0.012, 0.05), i % 2 ? '#b5432e' : '#d9694c', [Math.sin(a) * 0.19, 0.014 + (i % 2) * 0.012, Math.cos(a) * 0.19 - 0.06], [0, a, (i % 2 ? 1 : -1) * 0.25]);
+    }
+  },
+  oj(g) {
+    add(g, cyl(0.075, 0.06, 0.2, 16), '#ff9f1c', [-0.07, 0.1, 0]);
+    add(g, cyl(0.078, 0.076, 0.03, 16), C.glass, [-0.07, 0.212, 0]);
+    add(g, cyl(0.045, 0.045, 0.012, 12, 0, Math.PI), C.orange, [0.002, 0.215, 0.01], [0, Math.PI / 2, Math.PI / 2]);
+    add(g, cyl(0.011, 0.011, 0.27, 6), '#3a86ff', [-0.085, 0.27, -0.02], [0, 0, 0.2]);
+    // a juicy half orange and a whole one beside the glass
+    add(g, new THREE.SphereGeometry(0.075, 14, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), C.orange, [0.13, 0.075, 0.06]);
+    add(g, cyl(0.068, 0.068, 0.006, 14), '#ffc266', [0.13, 0.076, 0.06]);
+    for (let i = 0; i < 3; i++) add(g, box(0.125, 0.004, 0.006), '#ffe8bf', [0.13, 0.08, 0.06], [0, (i / 3) * Math.PI, 0]);
+    add(g, sphere(0.07, 12, 8), C.orange, [0.1, 0.07, -0.1]);
+    add(g, sphere(0.025, 6, 4), '#3fa34d', [0.1, 0.142, -0.1], [0, 0.5, 0.3], [1, 0.2, 0.55]);
+  },
+
+  // ---------------------------------------------------------------- Fish & Ships
+  fishchips(g) {
+    add(g, box(0.42, 0.04, 0.27), '#e7f5ff', [0, 0.02, 0]); // paper tray
+    for (const z of [-0.135, 0.135]) add(g, box(0.42, 0.07, 0.012), '#1c7ed6', [0, 0.035, z]);
+    for (let i = 0; i < 10; i++) {
+      add(g, box(0.03, 0.03, 0.15), C.fry, [-0.17 + (i % 5) * 0.042, 0.056 + (i > 4 ? 0.028 : 0), -0.01 + Math.sin(i * 1.3) * 0.03], [0, 0.35 * Math.sin(i * 1.9), 0.1]);
+    }
+    for (const [x, z, ry] of [[0.09, 0.045, 0.3], [0.11, -0.06, -0.2]]) {
+      add(g, new THREE.CapsuleGeometry(0.045, 0.13, 4, 10), C.golden, [x, 0.085, z], [0, ry, Math.PI / 2], [0.6, 1, 1.1]); // battered fish
+    }
+    add(g, cyl(0.045, 0.045, 0.03, 8, 0, Math.PI), '#ffe14d', [-0.1, 0.1, 0.06], [0.3, 0.6, 0]); // lemon wedge
+    add(g, cyl(0.04, 0.033, 0.035, 10), '#ffffff', [0.0, 0.085, 0.09]); // tartar sauce
+    add(g, cyl(0.034, 0.034, 0.005, 10), '#f1f3d0', [0.0, 0.104, 0.09]);
+  },
+  popcornshrimp(g) {
+    add(g, cyl(0.15, 0.11, 0.17, 16), '#ffffff', [0, 0.085, 0]); // paper tub
+    add(g, cyl(0.153, 0.146, 0.03, 16), C.red, [0, 0.152, 0]);
+    add(g, cyl(0.125, 0.118, 0.03, 16), C.red, [0, 0.04, 0]);
+    add(g, sphere(0.14, 12, 6), C.golden, [0, 0.165, 0], [0, 0, 0], [1, 0.3, 1]);
+    const curl = torus(0.022, 0.013, 5, 8, 4.2);
+    scatter(g, 14, curl, [C.golden, '#f0b860'], 0.11, 0.185, 79);
+    scatter(g, 6, curl, ['#f0b860', C.golden], 0.06, 0.22, 83);
+    scatter(g, 6, cone(0.012, 0.03, 5), ['#ff8a70'], 0.1, 0.21, 89); // little pink tails
+    add(g, cyl(0.045, 0.038, 0.035, 10), '#ffffff', [0.2, 0.0175, 0.1]); // dipping sauce
+    add(g, cyl(0.038, 0.038, 0.005, 10), '#ff7a59', [0.2, 0.036, 0.1]);
+  },
+  corncob(g) {
+    for (const [z, ry] of [[0.075, 0.12], [-0.08, -0.18]]) {
+      const c = new THREE.Group();
+      c.position.set(0, 0.062, z);
+      c.rotation.y = ry;
+      add(c, new THREE.CapsuleGeometry(0.05, 0.22, 4, 12), '#ffd23f', [0, 0, 0], [0, 0, Math.PI / 2]);
+      for (let row = 0; row < 7; row++) {
+        const a = (row / 7) * Math.PI * 2;
+        for (let k = 0; k < 8; k++) add(c, sphere(0.018, 5, 4), row % 2 ? '#ffe066' : '#ffc81f', [-0.119 + k * 0.034, Math.cos(a) * 0.048, Math.sin(a) * 0.048]); // kernels
+      }
+      for (const s of [-1, 1]) add(c, cyl(0.018, 0.012, 0.07, 6), '#2f9e44', [s * 0.195, 0, 0], [0, 0, s * -Math.PI / 2]); // holders
+      g.add(c);
+    }
+    add(g, box(0.05, 0.018, 0.05), '#fff3b0', [0.02, 0.123, 0.075], [0, 0.4, 0]); // melting butter
+  },
+
+  // ---------------------------------------------------------------- Pita Picnic
+  chickenpita(g) {
+    // a half-moon pocket standing in a paper wrap, stuffed to the top
+    add(g, cyl(0.17, 0.17, 0.085, 16, -Math.PI / 2, Math.PI), '#f0cf96', [0, 0.2, 0], [Math.PI / 2, 0, 0]);
+    add(g, cyl(0.11, 0.03, 0.13, 10), '#ffd54f', [0, 0.085, 0], [0, 0, 0], [1, 1, 0.6]);
+    for (const x of [-0.1, 0, 0.1]) add(g, sphere(0.05, 8, 6), C.lettuce, [x, 0.205, -0.008], [0, 0, 0], [1.2, 0.5, 0.75]);
+    for (let i = 0; i < 4; i++) add(g, new THREE.IcosahedronGeometry(0.03, 0), '#e8b06a', [-0.105 + i * 0.07, 0.228, 0.008], [i, i * 2, 0]); // chicken
+    for (const x of [-0.07, 0.07]) add(g, cyl(0.03, 0.03, 0.012, 10), C.tomato, [x, 0.222, -0.02], [1.1, 0, 0.3]);
+    for (let i = 0; i < 5; i++) add(g, sphere(0.014, 6, 4), '#ffffff', [-0.09 + i * 0.045, 0.245, 0.012 * (i % 2 ? 1 : -1)], [0, 0, 0], [1.4, 0.6, 1]); // garlic sauce
+    for (const [x, z] of [[0.2, 0.08], [0.24, 0.02]]) add(g, sphere(0.028, 8, 6), C.tomato, [x, 0.028, z]); // cherry tomatoes
+  },
+  falafel(g) {
+    add(g, cyl(0.2, 0.15, 0.04, 16), '#0fa3b1', [0, 0.02, 0]);
+    const spots = [[0, 0.135, 0]];
+    for (let i = 0; i < 5; i++) spots.push([Math.cos(i * 1.257) * 0.105, 0.085, Math.sin(i * 1.257) * 0.105]);
+    spots.forEach(([x, y, z], i) => add(g, new THREE.IcosahedronGeometry(0.054, 1), i % 2 ? '#a8672a' : '#b9773a', [x, y, z], [i, i * 1.7, 0]));
+    add(g, sphere(0.03, 8, 6), C.cream, [0, 0.185, 0], [0, 0, 0], [1.3, 0.3, 1.3]); // tahini drizzle
+    scatter(g, 8, box(0.014, 0.004, 0.01), ['#3fa34d'], 0.13, 0.14, 139);
+    add(g, cyl(0.045, 0.045, 0.03, 8, 0, Math.PI), '#ffe14d', [0.2, 0.03, 0.09], [0.3, 0.6, 0]); // lemon
+  },
+  hummus(g) {
+    add(g, cyl(0.19, 0.13, 0.055, 18), '#ffffff', [0, 0.0275, 0]);
+    add(g, torus(0.19, 0.01, 6, 20), '#0fa3b1', [0, 0.055, 0], [Math.PI / 2, 0, 0]);
+    add(g, sphere(0.175, 16, 8), '#e8cf9a', [0, 0.055, 0], [0, 0, 0], [1, 0.22, 1]);
+    add(g, torus(0.09, 0.013, 5, 18), '#d9bb80', [0, 0.086, 0], [Math.PI / 2, 0, 0]); // swirl
+    add(g, cyl(0.05, 0.05, 0.004, 12), '#d9a400', [0, 0.094, 0]); // olive oil
+    for (let i = 0; i < 3; i++) add(g, sphere(0.015, 6, 4), '#e3c078', [Math.cos(i * 2.1) * 0.02, 0.102, Math.sin(i * 2.1) * 0.02]); // chickpeas
+    scatter(g, 8, box(0.008, 0.004, 0.008), ['#c81e1e'], 0.12, 0.09, 149); // paprika
+    for (let i = 0; i < 5; i++) {
+      const a = Math.PI + (i - 2) * 0.5;
+      add(g, cyl(0.075, 0.075, 0.012, 3), '#f0cf96', [Math.sin(a) * 0.2, 0.085, Math.cos(a) * 0.2], [0.9, a, 0]); // pita chips to scoop with
+    }
+    for (let i = 0; i < 2; i++) add(g, box(0.02, 0.02, 0.13), i ? C.carrot : C.cucumber, [0.2 + i * 0.03, 0.02, 0.1 - i * 0.04], [0, 0.5 + i * 0.3, 0]);
+  },
+
+  // ---------------------------------------------------------------- Cozy BBQ
+  slider(g) {
+    for (const s of [-1, 1]) {
+      const x = s * 0.115;
+      add(g, cyl(0.095, 0.088, 0.035, 14), C.bun, [x, 0.0175, 0]);
+      add(g, sphere(0.1, 10, 6), '#c9682c', [x, 0.05, 0], [0, 0, 0], [1, 0.3, 1]); // saucy pulled chicken
+      for (let i = 0; i < 6; i++) add(g, box(0.05, 0.012, 0.014), '#e08a45', [x + Math.cos(i * 1.05) * 0.075, 0.052, Math.sin(i * 1.05) * 0.075], [0.3, i * 1.05, 0.2]); // shreds
+      add(g, sphere(0.095, 10, 6), '#e9f5db', [x, 0.076, 0], [0, 0, 0], [1, 0.2, 1]); // coleslaw
+      add(g, sphere(0.097, 14, 8), C.bunTop, [x, 0.09, 0], [0, 0, 0], [1, 0.6, 1]);
+      add(g, cyl(0.035, 0.035, 0.008, 10), '#7fb23a', [x, 0.152, 0]); // pickle chip
+      add(g, cyl(0.004, 0.004, 0.13, 4), '#e9d8a6', [x, 0.2, 0]); // toothpick
+      add(g, box(0.05, 0.03, 0.003), s < 0 ? C.red : '#3a86ff', [x + 0.025, 0.25, 0]); // little flag
+    }
+  },
+  cornbread(g) {
+    add(g, cyl(0.2, 0.17, 0.045, 18), '#2b2b2b', [0, 0.0225, 0]); // mini cast-iron skillet
+    add(g, box(0.16, 0.022, 0.045), '#2b2b2b', [0.26, 0.03, 0]);
+    for (const [x, y, z, ry] of [[-0.065, 0.083, 0.04, 0.2], [0.07, 0.083, -0.035, -0.3], [0, 0.164, 0, 0.6]]) {
+      add(g, box(0.125, 0.075, 0.125), '#ffc93c', [x, y, z], [0, ry, 0]);
+      add(g, box(0.127, 0.012, 0.127), '#d9952f', [x, y + 0.04, z], [0, ry, 0]); // golden crust
+    }
+    add(g, box(0.045, 0.018, 0.045), '#fff3b0', [0, 0.218, 0], [0, 0.2, 0]); // butter
+    add(g, sphere(0.05, 8, 6), '#f0a500', [0.01, 0.211, 0.01], [0, 0, 0], [1.2, 0.12, 1]); // honey
+  },
+  bbqmac(g) {
+    add(g, cyl(0.2, 0.17, 0.06, 18), '#2b2b2b', [0, 0.03, 0]); // skillet, straight from the oven
+    add(g, box(0.16, 0.022, 0.045), '#2b2b2b', [-0.26, 0.045, 0]);
+    add(g, sphere(0.185, 16, 8), '#ffb703', [0, 0.06, 0], [0, 0, 0], [1, 0.3, 1]);
+    scatter(g, 18, torus(0.022, 0.009, 5, 8, Math.PI), ['#ffc93c', '#ffd766'], 0.14, 0.1, 97);
+    scatter(g, 12, box(0.016, 0.01, 0.016), ['#b9773a', '#d9952f'], 0.13, 0.115, 101); // toasty crumbs
+    scatter(g, 5, box(0.014, 0.004, 0.01), ['#3fa34d'], 0.1, 0.122, 103);
+  },
 };
 
 export const hasFoodModel = (id) => Object.prototype.hasOwnProperty.call(BUILDERS, id);

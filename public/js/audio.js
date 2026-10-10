@@ -120,6 +120,15 @@ export const sfx = {
   drumroll: () => {
     for (let i = 0; i < 11; i++) noise(0.05, { vol: 0.16 + i * 0.02, freq: 500 + i * 40, q: 1.4, delay: i * 0.055 });
   },
+  whee: () => {
+    tone(700, 0.22, { vol: 0.2, slide: 1500 });
+    tone(1500, 0.9, { vol: 0.2, slide: 420, delay: 0.2 });
+  },
+  grab: () => {
+    tone(900, 0.1, { type: 'triangle', vol: 0.2, slide: 1500 });
+    tone(NOTES.G6, 0.25, { vol: 0.12, delay: 0.08 });
+  },
+  badge: () => [NOTES.C5, NOTES.E5, NOTES.G5, NOTES.C6, NOTES.E6].forEach((f, i) => tone(f, 0.24, { type: 'triangle', vol: 0.22, delay: i * 0.09 })),
   // food reactions (keyed by reaction name)
   spicy: () => {
     noise(0.6, { vol: 0.2, freq: 3400, q: 0.7 });

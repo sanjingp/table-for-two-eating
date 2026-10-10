@@ -23,6 +23,7 @@ const G = {
   capsule: (r, len) => geo(`k${r}:${len}`, () => new THREE.CapsuleGeometry(r, len, 4, 10)),
   torus: (r, t, arc = Math.PI * 2, rs = 8, ts = 18) => geo(`t${r}:${t}:${arc}:${rs}:${ts}`, () => new THREE.TorusGeometry(r, t, rs, ts, arc)),
   ico: (r) => geo(`i${r}`, () => new THREE.IcosahedronGeometry(r, 1)),
+  cone: (r, hgt, seg = 8) => geo(`n${r}:${hgt}:${seg}`, () => new THREE.ConeGeometry(r, hgt, seg)),
   circle: (r) => geo(`ci${r}`, () => new THREE.CircleGeometry(r, 20)),
 };
 
@@ -43,7 +44,14 @@ const TIE = new THREE.MeshLambertMaterial({ color: '#ff5fa2' });
 const CAMERA_BODY = new THREE.MeshLambertMaterial({ color: '#ff7eb6' });
 const CAMERA_LENS = new THREE.MeshLambertMaterial({ color: '#3a3150' });
 const CAMERA_LIGHT = new THREE.MeshLambertMaterial({ color: '#ff3b3b', emissive: '#aa0000' });
+const GOLD = new THREE.MeshLambertMaterial({ color: '#ffcf33', emissive: '#5c3d00' });
+const JEWEL_RED = new THREE.MeshLambertMaterial({ color: '#e63946', emissive: '#4d0a10' });
+const JEWEL_BLUE = new THREE.MeshLambertMaterial({ color: '#3a86ff', emissive: '#0a2a66' });
+const LENS = new THREE.MeshLambertMaterial({ color: '#1d1b2e' });
 const STEAM = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#bbbbbb', transparent: true, opacity: 0.85, depthWrite: false });
+
+// Hats sit higher (and further back) on big hair: [up, back].
+const HAT_SEAT = { afropuff: [0.4, 0.18], curly: [0.08, 0.03] };
 
 const EMOTE_DURATION = {
   wave: 1.8, yum: 1.8, wow: 1.6, thumbs: 1.6, silly: 1.8, kiss: 1.6, dance: 2.4, heart: 1.8, jump: 0.7, bite: 1.0,
@@ -82,6 +90,7 @@ export class Character {
     this.walkAmt = 0;
     this.speed = 0; // 0..1 set by owner each frame
     this.pose = 'stand'; // 'stand' | 'sit'
+    this.action = null; // null | 'air' (bounce pad) | 'slide' — set by the owner each frame
     this.holdingCamera = false;
     this.emote = null;
     this.emoteT = 0;
@@ -91,6 +100,7 @@ export class Character {
     this.bubbleT = 0;
     this.labelSprite = null;
     this.lightHue = 0;
+    this.shadowLift = 0;
     this.skinBase = new THREE.Color();
     this.flushed = false;
     this.steam = null;
@@ -114,7 +124,7 @@ export class Character {
     m.bottom.color.set(app.bottomColor);
     m.shoes.color.set(app.shoesColor);
     m.sole.color.set(app.shoes === 'lightup' ? '#ffffff' : app.shoes === 'sandals' ? app.shoesColor : '#ffffff');
-    const styleKeys = ['hairStyle', 'top', 'jacket', 'bottom', 'shoes'];
+    const styleKeys = ['hairStyle', 'top', 'jacket', 'bottom', 'shoes', 'hat'];
     if (!prev || styleKeys.some((k) => prev[k] !== app[k])) this.rebuild();
   }
 
@@ -230,6 +240,7 @@ export class Character {
     this.tongue.visible = false;
     this.mouthSmile.userData.dynamic = this.mouthO.userData.dynamic = this.tongue.userData.dynamic = true;
     this.buildHair(app.hairStyle);
+    this.buildHat(app.hat, app.hairStyle);
 
     // Merge each rigid part (one mesh per material) to keep draw calls low on iPad.
     for (const part of [this.hips, this.torso, this.legL, this.legR, this.armL, this.armR, this.head]) {
@@ -376,6 +387,43 @@ export class Character {
     }
   }
 
+  /** Passport prizes. Built straight into the head so they merge with it (a draw call or two each). */
+  buildHat(kind, hairStyle) {
+    const hd = this.head;
+    const [up, back] = HAT_SEAT[hairStyle] || [0, 0];
+    if (kind === 'chef') {
+      add(hd, G.cyl(0.25, 0.25, 0.16, 16), WHITE, 0, 0.76 + up, -0.03 - back);
+      add(hd, G.sphere(0.3, 14, 10), WHITE, 0, 0.99 + up, -0.03 - back).scale.set(1, 0.72, 1);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        add(hd, G.sphere(0.14, 10, 8), WHITE, Math.cos(a) * 0.2, 0.98 + up, Math.sin(a) * 0.2 - 0.03 - back); // puffs
+      }
+    } else if (kind === 'crown') {
+      const y = 0.73 + up;
+      const z = -0.02 - back;
+      add(hd, G.cyl(0.235, 0.22, 0.13, 16), GOLD, 0, y, z);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Math.PI / 2; // one point straight in front
+        add(hd, G.cone(0.062, 0.15, 4), GOLD, Math.cos(a) * 0.2, y + 0.135, Math.sin(a) * 0.2 + z).rotation.y = -a;
+        add(hd, G.sphere(0.028, 8, 6), GOLD, Math.cos(a) * 0.2, y + 0.22, Math.sin(a) * 0.2 + z);
+        const b = a + Math.PI / 6;
+        add(hd, G.sphere(0.036, 8, 6), i % 2 ? JEWEL_BLUE : JEWEL_RED, Math.cos(b) * 0.23, y, Math.sin(b) * 0.23 + z);
+      }
+    } else if (kind === 'shades') {
+      for (const side of [-1, 1]) {
+        const lens = add(hd, G.cyl(0.105, 0.105, 0.035, 16), LENS, side * 0.135, 0.385, 0.365);
+        lens.rotation.order = 'YXZ';
+        lens.rotation.set(Math.PI / 2, side * 0.32, 0);
+        lens.scale.z = 0.88;
+        const rim = add(hd, G.torus(0.105, 0.016, Math.PI * 2, 6, 16), TIE, side * 0.135, 0.385, 0.372);
+        rim.rotation.y = side * 0.32;
+        rim.scale.y = 0.88;
+        add(hd, G.box(0.022, 0.028, 0.31), LENS, side * 0.3075, 0.395, 0.19).rotation.y = -side * 0.449; // arm to the ear
+      }
+      add(hd, G.box(0.09, 0.025, 0.03), LENS, 0, 0.405, 0.385); // bridge
+    }
+  }
+
   // ------------------------------------------------------------ props / bubbles
   setLabel(text, color) {
     if (this.labelSprite) {
@@ -466,6 +514,13 @@ export class Character {
       P.armLx = -1.35;
       P.armLz = -0.35;
     }
+    if (this.action === 'air') {
+      // whee! arms out, knees tucked
+      Object.assign(P, { armLx: 0, armRx: 0, armLz: -2.3, armRz: 2.3, legLx: -0.55, legRx: -0.25, bodyY: breath, mouth: 'o' });
+    } else if (this.action === 'slide') {
+      // sitting on the chute, hands in the air
+      Object.assign(P, { armLx: -0.2, armRx: -0.2, armLz: -2.7, armRz: 2.7, legLx: -0.95, legRx: -0.95, bodyY: -0.34, mouth: 'o' });
+    }
 
     // Emote overlay
     if (this.emote !== 'jump') this.jumpY = 0;
@@ -505,6 +560,14 @@ export class Character {
     else this.mouthO.scale.y = P.mouth === 'pucker' ? 0.55 : 1.2;
     this.tongue.visible = P.mouth === 'tongue';
     this.thumb.visible = P.thumb;
+
+    // The blob shadow stays on the ground when the character is up in the air.
+    const lift = this.root.position.y;
+    if (lift !== this.shadowLift) {
+      this.shadowLift = lift;
+      this.shadow.position.y = 0.02 - lift;
+      this.shadow.scale.setScalar(1 / (1 + Math.max(0, lift) * 0.22));
+    }
 
     // Blink / squint
     this.blinkT -= dt;

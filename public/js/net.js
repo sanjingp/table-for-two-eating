@@ -1,5 +1,5 @@
 // WebSocket client. Optional: if the server can't be reached the game keeps working solo.
-import { sanitizeAppearance, ANIMS, EMOTES, LINES, isValidRoom, WORLD_LIMIT } from './schema.js';
+import { sanitizeAppearance, ANIMS, EMOTES, LINES, isValidRoom, WORLD_LIMIT, HEIGHT_LIMIT } from './schema.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,16}$/.test(v);
@@ -129,14 +129,16 @@ export class Net {
   cleanState(s) {
     if (!s || !isNum(s.x) || !isNum(s.z) || !isNum(s.ry) || !ANIMS.includes(s.an)) return null;
     const lim = (v) => Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, v));
-    return { x: lim(s.x), z: lim(s.z), ry: lim(s.ry), an: s.an };
+    const y = isNum(s.y) ? Math.max(0, Math.min(HEIGHT_LIMIT, s.y)) : 0; // height off the ground (bounce pads, slide)
+    return { x: lim(s.x), z: lim(s.z), ry: lim(s.ry), an: s.an, y };
   }
 
   send(obj) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
   }
-  sendState(x, z, ry, an) {
-    if (this.status === 'online') this.send({ t: 'st', x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100, ry: Math.round(ry * 100) / 100, an });
+  sendState(x, z, ry, an, y = 0) {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    if (this.status === 'online') this.send({ t: 'st', x: r2(x), z: r2(z), ry: r2(ry), an, y: r2(y) });
   }
   sendEmote(e) {
     if (this.status === 'online') this.send({ t: 'emo', e });

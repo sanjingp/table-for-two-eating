@@ -50,7 +50,7 @@
       <button id="btn-action" class="btn round-btn big" aria-label="Action">⭐<small id="action-label">Jump</small></button>
     </div>
 
-    <button id="btn-go-in" class="btn go-in hidden" aria-label="Go in">🚪 Go in!<small id="go-in-name"></small></button>
+    <button id="btn-go-in" class="btn go-in hidden" aria-label="Go in"><span id="go-in-text">🚪 Go in!</span><small id="go-in-name"></small></button>
 
     <div id="emote-panel" class="popup hidden">
       <div class="popup-title">Emotes</div>
@@ -81,8 +81,22 @@
       <div id="order-menu" class="menu-grid"></div>
       <div class="order-actions">
         <button id="order-surprise" class="btn purple surprise" aria-label="Mystery Plate: surprise me"><span class="dice">🎲</span> Surprise me!</button>
+        <button id="order-belt" class="btn teal small hidden">🍣 Back to the belt</button>
         <button id="order-leave" class="btn white small">🚪 Go back outside</button>
       </div>
+    </div>
+  </section>
+
+  <!-- ===================== Sushi conveyor belt (plates are tapped on the 3D canvas) ===================== -->
+  <section id="screen-belt" class="screen belt hidden" aria-label="Sushi conveyor belt">
+    <div class="belt-title">🍣 Tap a plate to grab it!</div>
+    <div class="belt-controls">
+      <div class="belt-speed" role="group" aria-label="Belt speed">
+        <button id="belt-slow" class="btn white small">🐢 Relaxed</button>
+        <button id="belt-fast" class="btn white small">🐇 Fast</button>
+      </div>
+      <button id="belt-skip" class="btn purple small">📋 Skip to the menu</button>
+      <button id="belt-leave" class="btn white small">🚪 Go back outside</button>
     </div>
   </section>
 
@@ -125,7 +139,26 @@
         <button id="book-close" class="btn white icon-only" aria-label="Close">✖</button>
       </header>
       <div id="book-summary" class="book-summary"></div>
-      <div id="book-grid" class="book-grid"></div>
+      <div class="tabs book-tabs">
+        <button id="book-tab-passport" class="tab on"><span class="ti">🎫</span><span>Sticker Passport</span></button>
+        <button id="book-tab-reviews" class="tab"><span class="ti">📖</span><span>Reviews</span></button>
+      </div>
+      <div id="book-passport" class="book-passport"></div>
+      <div id="book-grid" class="book-grid hidden"></div>
+    </div>
+  </section>
+
+  <!-- ===================== New badge ===================== -->
+  <section id="screen-reward" class="screen dim hidden" aria-label="New badge">
+    <div class="card reward-card">
+      <p class="sub">🎉 You earned a badge!</p>
+      <div id="reward-emoji" class="reward-emoji"></div>
+      <h2 id="reward-name"></h2>
+      <p id="reward-prize" class="reward-prize"></p>
+      <div class="reward-actions">
+        <button id="reward-wear" class="btn green big-text">Wear it!</button>
+        <button id="reward-later" class="btn white small">Keep playing</button>
+      </div>
     </div>
   </section>
 

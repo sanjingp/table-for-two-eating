@@ -3,12 +3,13 @@
 // Pure data with no imports: schema.js (and so the Node server) loads this file too.
 
 // Order = position around the town ring, starting straight ahead of the spawn point.
-// Buildings that share a shell (`style`) sit on opposite sides of town; `prop` picks
-// the giant rooftop food. Menu emoji stay old (Unicode 11 or earlier) for older iPads.
-// `react` tags a food with a bite reaction (see FOOD_REACTIONS).
+// Buildings that share a shell (`style`) sit far apart; `prop` picks the giant rooftop food.
+// Menu and sticker emoji stay old (Unicode 11 or earlier) for older iPads.
+// `react` tags a food with a bite reaction (see FOOD_REACTIONS); `sticker` is the passport
+// sticker earned by the first review there; `belt` gives the restaurant a sushi conveyor belt.
 export const RESTAURANTS = [
   {
-    id: 'sakura', name: 'Sakura Sushi', style: 'pagoda', prop: 'maki',
+    id: 'sakura', name: 'Sakura Sushi', style: 'pagoda', prop: 'maki', sticker: '🍣', belt: true,
     wall: '#ff9fc6', roof: '#3b5bdb', trim: '#fff3bf', inside: '#fff0f6',
     sign: { bg: '#fff0f6', fg: '#3b5bdb', border: '#ff8fb8' }, accent: '#3b5bdb',
     menu: [
@@ -20,7 +21,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'jj', name: "Jimmy John's", style: 'deli', prop: 'sandwich',
+    id: 'jj', name: "Jimmy John's", style: 'deli', prop: 'sandwich', sticker: '🥪',
     wall: '#fdfdfd', roof: '#d62828', trim: '#222222', inside: '#f1f1f1',
     sign: { bg: '#ffffff', fg: '#d62828', border: '#222222' }, accent: '#d62828',
     menu: [
@@ -31,7 +32,17 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'slice', name: 'Slice Squad', style: 'cottage', prop: 'pizza',
+    id: 'fish', name: 'Fish & Ships', style: 'boat', prop: 'fish', sticker: '🐟',
+    wall: '#1c7ed6', roof: '#e03131', trim: '#ffffff', inside: '#e7f5ff',
+    sign: { bg: '#ffffff', fg: '#1864ab', border: '#e03131' }, accent: '#1864ab',
+    menu: [
+      { id: 'fishchips', name: 'Fish & Chips', emoji: '🐟', blurb: 'Crispy fish, chunky chips' },
+      { id: 'popcornshrimp', name: 'Popcorn Shrimp', emoji: '🍤', blurb: 'Pop them in one bite!' },
+      { id: 'corncob', name: 'Corn on the Cob', emoji: '🌽', blurb: 'Buttery & sweet' },
+    ],
+  },
+  {
+    id: 'slice', name: 'Slice Squad', style: 'cottage', prop: 'pizza', sticker: '🍕',
     wall: '#fff1d6', roof: '#2f9e44', trim: '#ffffff', inside: '#fff4e0',
     sign: { bg: '#fffbe6', fg: '#e8590c', border: '#2f9e44' }, accent: '#e8590c',
     menu: [
@@ -41,7 +52,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'mcd', name: "McDonald's", style: 'diner', prop: 'burger',
+    id: 'mcd', name: "McDonald's", style: 'diner', prop: 'burger', sticker: '🍔',
     wall: '#ff6b5e', roof: '#ffe066', trim: '#ffffff', inside: '#fff5d1',
     sign: { bg: '#fff8e1', fg: '#e8453c', border: '#ffe066' }, accent: '#e8453c',
     menu: [
@@ -52,7 +63,18 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'boba', name: 'Bubble Tea Bay', style: 'train', prop: 'boba',
+    id: 'curry', name: 'Curry Castle', style: 'castle', prop: 'curry', sticker: '🍛',
+    wall: '#ffb347', roof: '#c2185b', trim: '#fff3c4', inside: '#fff3e0',
+    sign: { bg: '#fff8e1', fg: '#c2185b', border: '#ff9800' }, accent: '#c2185b',
+    menu: [
+      { id: 'butterchicken', name: 'Butter Chicken', emoji: '🍛', blurb: 'Creamy & mild with rice' },
+      { id: 'naan', name: 'Naan', emoji: '🍞', blurb: 'Warm, puffy bread' },
+      { id: 'samosa', name: 'Samosa', emoji: '🥟', blurb: 'Crispy triangle pockets' },
+      { id: 'lassi', name: 'Mango Lassi', emoji: '🥭', blurb: 'A cold mango shake', react: 'cold' },
+    ],
+  },
+  {
+    id: 'boba', name: 'Bubble Tea Bay', style: 'train', prop: 'boba', sticker: '🥤',
     wall: '#74c0fc', roof: '#e7f5ff', trim: '#ffffff', inside: '#e7f5ff',
     sign: { bg: '#ffffff', fg: '#1971c2', border: '#74c0fc' }, accent: '#1971c2',
     menu: [
@@ -62,7 +84,17 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'chipotle', name: 'Chipotle', style: 'adobe', prop: 'burrito',
+    id: 'noodle', name: 'Noodle Ninja', style: 'pagoda', prop: 'ramen', sticker: '🍜',
+    wall: '#3d405b', roof: '#e63946', trim: '#ffd166', inside: '#f4f1de',
+    sign: { bg: '#ffffff', fg: '#3d405b', border: '#e63946' }, accent: '#3d405b',
+    menu: [
+      { id: 'ramen', name: 'Chicken Ramen', emoji: '🍜', blurb: 'Slurp the noodles!' },
+      { id: 'gyoza', name: 'Gyoza', emoji: '🥟', blurb: 'Crispy on the bottom' },
+      { id: 'riceball', name: 'Rice Ball', emoji: '🍙', blurb: 'A triangle of rice' },
+    ],
+  },
+  {
+    id: 'chipotle', name: 'Chipotle', style: 'adobe', prop: 'burrito', sticker: '🌯',
     wall: '#b5652f', roof: '#7a2e1b', trim: '#f2cc8f', inside: '#fbe4cf',
     sign: { bg: '#fdf0e1', fg: '#7a2e1b', border: '#7a2e1b' }, accent: '#7a2e1b',
     menu: [
@@ -73,7 +105,49 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'china', name: 'China Garden', style: 'pagoda',
+    id: 'seoul', name: 'Seoul Bites', style: 'deli', prop: 'corndog', sticker: '🌭',
+    wall: '#ffffff', roof: '#4d6cfa', trim: '#ff5d8f', inside: '#fff0f5',
+    sign: { bg: '#ffffff', fg: '#4d6cfa', border: '#ff5d8f' }, accent: '#4d6cfa',
+    menu: [
+      { id: 'corndog', name: 'Korean Corn Dog', emoji: '🌭', blurb: 'Crunchy on a stick' },
+      { id: 'kimbap', name: 'Kimbap', emoji: '🍱', blurb: 'Rainbow rice rolls' },
+      { id: 'mandu', name: 'Mandu', emoji: '🥟', blurb: 'Steamy little dumplings' },
+      { id: 'shavedice', name: 'Shaved Ice', emoji: '🍧', blurb: 'A snowy fruit mountain', react: 'cold' },
+    ],
+  },
+  {
+    id: 'pasta', name: 'Pasta Porch', style: 'cottage', prop: 'meatballs', sticker: '🍝',
+    wall: '#fff8e7', roof: '#b23a48', trim: '#ffffff', inside: '#fdf0d5',
+    sign: { bg: '#fffdf5', fg: '#2d6a4f', border: '#b23a48' }, accent: '#2d6a4f',
+    menu: [
+      { id: 'spaghetti', name: 'Spaghetti & Meatballs', emoji: '🍝', blurb: 'Twirl it on your fork' },
+      { id: 'ravioli', name: 'Ravioli', emoji: '🧀', blurb: 'Cheesy pasta pillows' },
+      { id: 'garlicbread', name: 'Garlic Bread', emoji: '🥖', blurb: 'Toasty & buttery' },
+    ],
+  },
+  {
+    id: 'sunny', name: 'Sunny Breakfast Cafe', style: 'diner', prop: 'pancakes', sticker: '🥞',
+    wall: '#ffe066', roof: '#ff922b', trim: '#ffffff', inside: '#fff9db',
+    sign: { bg: '#ffffff', fg: '#f76707', border: '#ffd43b' }, accent: '#f76707',
+    menu: [
+      { id: 'pancakes', name: 'Pancakes', emoji: '🥞', blurb: 'A tall syrupy stack' },
+      { id: 'waffles', name: 'Waffles', emoji: '🍯', blurb: 'Crispy squares & syrup' },
+      { id: 'eggsbacon', name: 'Eggs & Bacon', emoji: '🍳', blurb: 'A smiley breakfast!' },
+      { id: 'oj', name: 'Orange Juice', emoji: '🍊', blurb: 'Fresh & zingy', react: 'sour' },
+    ],
+  },
+  {
+    id: 'pita', name: 'Pita Picnic', style: 'dome', prop: 'pita', sticker: '🥙',
+    wall: '#ffffff', roof: '#0fa3b1', trim: '#0fa3b1', inside: '#e6fafc',
+    sign: { bg: '#ffffff', fg: '#0b7a85', border: '#ffd54f' }, accent: '#0b7a85',
+    menu: [
+      { id: 'chickenpita', name: 'Chicken Pita', emoji: '🥙', blurb: 'A pocket full of yum' },
+      { id: 'falafel', name: 'Falafel Bites', emoji: '🌰', blurb: 'Crunchy outside, soft inside' },
+      { id: 'hummus', name: 'Hummus', emoji: '🥣', blurb: 'Scoop it with pita chips' },
+    ],
+  },
+  {
+    id: 'china', name: 'China Garden', style: 'pagoda', sticker: '🥡',
     wall: '#e63946', roof: '#2a9d8f', trim: '#ffd166', inside: '#ffe1d6',
     sign: { bg: '#fff6dc', fg: '#c1121f', border: '#ffd166' }, accent: '#c1121f',
     menu: [
@@ -84,7 +158,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'donut', name: 'Donut Workshop', style: 'deli', prop: 'donut',
+    id: 'donut', name: 'Donut Workshop', style: 'deli', prop: 'donut', sticker: '🍩',
     wall: '#fff0c9', roof: '#ff8fc7', trim: '#7b4a2a', inside: '#fff0f6',
     sign: { bg: '#ffffff', fg: '#8a4b2a', border: '#ff8fc7' }, accent: '#8a4b2a',
     menu: [
@@ -95,7 +169,17 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'cfa', name: 'Chick-fil-A', style: 'cottage', prop: 'milkshake',
+    id: 'bbq', name: 'Cozy BBQ', style: 'barn', sticker: '🔥',
+    wall: '#c0392b', roof: '#5c3d2e', trim: '#ffffff', inside: '#fff1e0',
+    sign: { bg: '#fff8ee', fg: '#8d2b1f', border: '#5c3d2e' }, accent: '#8d2b1f',
+    menu: [
+      { id: 'slider', name: 'Chicken Sliders', emoji: '🍔', blurb: 'Two tiny sandwiches' },
+      { id: 'cornbread', name: 'Cornbread', emoji: '🌽', blurb: 'Sweet golden squares' },
+      { id: 'bbqmac', name: 'Skillet Mac & Cheese', emoji: '🧀', blurb: 'Bubbly from the oven' },
+    ],
+  },
+  {
+    id: 'cfa', name: 'Chick-fil-A', style: 'cottage', prop: 'milkshake', sticker: '🍗',
     wall: '#fff3e6', roof: '#e5383b', trim: '#ffffff', inside: '#fff0f0',
     sign: { bg: '#ffffff', fg: '#e5383b', border: '#e5383b' }, accent: '#e5383b',
     menu: [
@@ -106,7 +190,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'sundae', name: 'Sundae Funday', style: 'diner', prop: 'sundae',
+    id: 'sundae', name: 'Sundae Funday', style: 'diner', prop: 'sundae', sticker: '🍨',
     wall: '#96f2d7', roof: '#ffa8c5', trim: '#ffffff', inside: '#f0fff7',
     sign: { bg: '#ffffff', fg: '#e64980', border: '#63e6be' }, accent: '#e64980',
     menu: [
@@ -116,7 +200,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'subway', name: 'Subway', style: 'train',
+    id: 'subway', name: 'Subway', style: 'train', sticker: '🚂',
     wall: '#2bb39b', roof: '#b8f2e6', trim: '#ffffff', inside: '#e3f8f3',
     sign: { bg: '#ffffff', fg: '#1d8f7c', border: '#2bb39b' }, accent: '#1d8f7c',
     menu: [
@@ -127,7 +211,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'tacobell', name: 'Taco Bell', style: 'mission', prop: 'taco',
+    id: 'tacobell', name: 'Taco Bell', style: 'mission', prop: 'taco', sticker: '🌮',
     wall: '#8e5cf7', roof: '#ff7eb6', trim: '#ffe066', inside: '#efe4ff',
     sign: { bg: '#ffffff', fg: '#6a2ee8', border: '#ff7eb6' }, accent: '#6a2ee8',
     menu: [
@@ -200,6 +284,22 @@ export const CLOTHES = {
   shoes: { title: 'Shoes', icon: '👟', colorKey: 'shoesColor', options: { sneakers: ['Sneakers', '👟'], boots: ['Boots', '🥾'], sandals: ['Sandals', '🩴'], lightup: ['Light-up!', '✨'] } },
 };
 
+// Hats come from passport badges, never from the closet alone (ids in schema.js HATS).
+export const HAT_INFO = {
+  none: { label: 'No hat', icon: '🚫' },
+  chef: { label: 'Chef Hat', icon: '👨‍🍳' },
+  crown: { label: 'Crown', icon: '👑' },
+  shades: { label: 'Sunglasses', icon: '🕶️' },
+};
+
+// Sticker passport badges. `kind` says what is counted (see passport.js):
+// 'stickers' = different restaurants reviewed, 'menu' = every food tried at one restaurant.
+export const BADGES = [
+  { id: 'taster', name: 'Taste Tester', emoji: '🍴', goal: 'Collect 3 stickers', kind: 'stickers', need: 3, hat: 'chef' },
+  { id: 'menu', name: 'Menu Master', emoji: '📋', goal: 'Try every food at one restaurant', kind: 'menu', hat: 'shades' },
+  { id: 'tour', name: 'Town Tour', emoji: '🚩', goal: 'Collect 10 stickers', kind: 'stickers', need: 10, hat: 'crown' },
+];
+
 export const EMOTE_INFO = {
   wave: { emoji: '👋', label: 'Wave' },
   yum: { emoji: '😋', label: 'Yum' },
@@ -229,4 +329,5 @@ export const MOODS = ['😍', '🤩', '😋', '🙂', '😐', '🤢'];
 export const COHOST = {
   hair: '#3b2417', hairStyle: 'short', eyes: '#6b4423', top: 'tshirt', topColor: '#3a86ff',
   jacket: 'none', jacketColor: '#5b8bd6', bottom: 'pants', bottomColor: '#33415c', shoes: 'sneakers', shoesColor: '#ffffff',
+  hat: 'none',
 };

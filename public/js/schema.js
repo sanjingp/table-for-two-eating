@@ -7,10 +7,12 @@ export const TOPS = ['tshirt', 'hoodie', 'dress'];
 export const JACKETS = ['none', 'jean', 'puffer', 'raincoat'];
 export const BOTTOMS = ['pants', 'shorts', 'skirt', 'leggings'];
 export const SHOES = ['sneakers', 'boots', 'sandals', 'lightup'];
+// Hats are unlocked by passport badges (see BADGES in data.js); 'none' is always allowed.
+export const HATS = ['none', 'chef', 'crown', 'shades'];
 
 export const EMOTES = ['wave', 'yum', 'wow', 'thumbs', 'silly', 'kiss', 'dance', 'heart', 'jump',
   'spicy', 'sour', 'cold', 'yuck']; // the last four are food reactions
-export const ANIMS = ['idle', 'walk', 'review'];
+export const ANIMS = ['idle', 'walk', 'review', 'air', 'slide']; // air = bounce pad, slide = riding the slide
 
 // Preset speech lines. Only the index is sent over the network — never free text.
 export const LINES = [
@@ -37,6 +39,7 @@ export const NAME_NOUN = ['Taco', 'Noodle', 'Dumpling', 'Cupcake', 'Pickle', 'Wa
 export const RESTAURANT_IDS = RESTAURANTS.map((r) => r.id);
 
 export const WORLD_LIMIT = 60;
+export const HEIGHT_LIMIT = 12; // highest a player can be off the ground (bounce pads, the slide)
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 export const isHex = (v) => typeof v === 'string' && HEX_RE.test(v);
@@ -62,6 +65,7 @@ export const DEFAULT_APPEARANCE = Object.freeze({
   bottomColor: '#9b5de5',
   shoes: 'lightup',
   shoesColor: '#ffffff',
+  hat: 'none',
 });
 
 const APPEARANCE_SCHEMA = {
@@ -78,7 +82,12 @@ const APPEARANCE_SCHEMA = {
   bottomColor: isHex,
   shoes: oneOf(SHOES),
   shoesColor: isHex,
+  hat: oneOf(HATS),
 };
+
+// Fields added after launch. A page left open from before the update doesn't send them,
+// so a missing one takes this value instead of failing the whole appearance.
+const LATER_FIELDS = { hat: 'none' };
 
 function normalize(k, v) {
   if (k === 'skin') return Math.round(v * 1000) / 1000;
@@ -91,7 +100,7 @@ export function sanitizeAppearance(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const out = {};
   for (const [k, check] of Object.entries(APPEARANCE_SCHEMA)) {
-    const v = input[k];
+    const v = input[k] === undefined && k in LATER_FIELDS ? LATER_FIELDS[k] : input[k];
     if (!check(v)) return null;
     out[k] = normalize(k, v);
   }

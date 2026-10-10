@@ -2,10 +2,13 @@
 
 A cute, kid-safe 3D restaurant-review game for the browser, made for iPad Safari. It's inspired by the daddy-daughter review channel *Table for Two*.
 
-Walk around **Yummy Town** and visit 12 restaurants: Sakura Sushi, Slice Squad, Donut Workshop, Bubble Tea Bay and Sundae Funday (made-up places), plus China Garden, Jimmy John's, Chick-fil-A, McDonald's, Chipotle, Subway and Taco Bell. At each one you order a food, **film a review** in a pretend camera viewfinder (REC dot, timer, emotes, preset lines that can be spoken out loud), then **rate it** with stars and an emoji. Ratings are saved in your scrapbook and float above each restaurant as stars. Friends who open the same link show up in the same town.
+Walk around **Yummy Town** and visit 20 restaurants. Thirteen are made-up places (Sakura Sushi, Slice Squad, Donut Workshop, Bubble Tea Bay, Sundae Funday, Noodle Ninja, Seoul Bites, Curry Castle, Pasta Porch, Sunny Breakfast Cafe, Fish & Ships, Pita Picnic, Cozy BBQ); the other seven are China Garden, Jimmy John's, Chick-fil-A, McDonald's, Chipotle, Subway and Taco Bell. At each one you order a food, **film a review** in a pretend camera viewfinder (REC dot, timer, emotes, preset lines that can be spoken out loud), then **rate it** with stars and an emoji. Ratings are saved in your scrapbook and float above each restaurant as stars. Friends who open the same link show up in the same town.
 
 - 🎲 **Mystery Plate.** "Surprise me!" on every menu serves a random food, usually with a silly twist such as Pickle Sundae or Rainbow Dumplings.
 - 🥵 **Food reactions.** Spicy, sour and ice-cold foods get a reaction after every bite: steam out of the ears, a pucker, or a brain-freeze shiver.
+- 🍣 **Sushi conveyor belt.** At Sakura Sushi the plates glide past: tap one to grab it. Pick 🐢 Relaxed or 🐇 Fast, or skip to the menu.
+- 🎫 **Sticker passport.** Every restaurant you review gives you a sticker. Badges unlock hats for your closet: a chef hat, sunglasses and a crown.
+- 🎢 **Playground.** Bounce pads send you flying, and there is a slide to climb and ride. Friends see you do both.
 
 - 🎨 **Character creator.** Pick a fun preset name, 7 hair styles, any hair or eye color, and a realistic skin-tone slider.
 - 👗 **Closet.** Tops, jackets, bottoms and shoes (yes, light-up ones ✨), each in many colors or any color you like.
@@ -44,7 +47,8 @@ Tips:
 |---|---|---|
 | Walk | Drag the joystick (bottom-left) | WASD / arrow keys |
 | Look around | Drag anywhere on the 3D world | Drag with the mouse |
-| Jump / Go in | Big yellow button | Space (E / Enter at a door) |
+| Jump / Go in / Slide | Big yellow button | Space (E / Enter at a door or the slide) |
+| Grab a sushi plate | Tap the plate | Click the plate |
 | Emotes & sayings | 😊 Emote button | — |
 
 ## Rooms & inviting friends
@@ -67,10 +71,13 @@ This runs `tests/e2e.mjs` with Playwright and headless Chromium (it installs Chr
 3. checks there are no console or page errors;
 4. checks each page sees the other player (via `window.__t42.remotePlayerCount()`);
 5. drags the touch joystick and checks the player moved, and that the other page saw it;
-6. checks the town layout (every restaurant in the data is on the ring, inside the walkable edge and the server's position limit), that every food has its own 3D model, and that draw calls stay low;
-7. walks to Sakura Sushi, orders, takes a bite and checks the spicy reaction plays for both players, then films, rates, and checks the review was saved;
-8. orders a Mystery Plate at a second restaurant and checks the silly combo, its reaction, and that both reviews appear in the scrapbook;
-9. sends bad messages straight to the server (chat, unknown fields, bad names, >4 KB, 9 players) and checks they're rejected.
+6. checks the town layout (all 20 restaurants are on the ring without touching, inside the walkable edge and the server's position limit), that every food has its own 3D model, and that draw calls stay low;
+7. bounces on a bounce pad and rides the slide, and checks the other page sees both;
+8. walks to Sakura Sushi, tries the conveyor belt speeds, skips to the menu, orders, takes a bite and checks the spicy reaction plays for both players, then films, rates, and checks the review was saved;
+9. goes back and taps a plate (and then the Mystery Plate dome) on the 3D belt, and checks that plate is the one served;
+10. orders a Mystery Plate at a second restaurant and checks the silly combo and its reaction;
+11. reviews a third restaurant, and checks the sticker passport, the badge it earns, the chef hat it unlocks, and that the other page sees the hat;
+12. sends bad messages straight to the server (chat, unknown fields, bad names, unknown hats, sky-high heights, >4 KB, 9 players) and checks they're rejected.
 
 ## Updating
 
