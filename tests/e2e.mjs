@@ -289,9 +289,33 @@ async function main() {
     await A.locator('.menu-item').first().tap();
     check(await waitFor(A, () => window.__t42.mode() === 'review'), 'review mode with viewfinder');
     check(await A.locator('.rec-dot').isVisible(), 'REC dot visible');
-    await A.locator('.rv-emote.bite').tap();
+    await A.evaluate(async () => {
+      const { Character } = await import('/js/character.js');
+      const setHeldItem = Character.prototype.setHeldItem;
+      const trace = { holds: 0, releases: 0 };
+      window.__biteTrace = trace;
+      window.__restoreHeldItem = () => { Character.prototype.setHeldItem = setHeldItem; };
+      Character.prototype.setHeldItem = function (item) {
+        trace[item ? 'holds' : 'releases']++;
+        return setHeldItem.call(this, item);
+      };
+      document.querySelector('.rv-emote.bite').click();
+      // An emote can replace the bite pose while its food and timers are still active.
+      setTimeout(() => {
+        document.querySelector('.rv-emote:not(.bite)').click();
+        document.querySelector('.rv-emote.bite').click();
+      }, 550);
+    });
     check(await waitFor(A, () => window.__t42.playerEmote() === 'spicy', null, 4000), 'a bite of wasabi roll makes the reviewer go 🥵 spicy');
     check(await waitFor(B, () => window.__t42.remoteEmotes().includes('spicy'), null, 4000), 'the friend sees the spicy reaction too');
+    const biteTrace = await A.evaluate(() => {
+      window.__restoreHeldItem();
+      delete window.__restoreHeldItem;
+      const trace = window.__biteTrace;
+      delete window.__biteTrace;
+      return trace;
+    });
+    check(biteTrace.holds === 1 && biteTrace.releases === 1, 'tapping an emote and bite during a bite serves and clears only one held food');
     await A.locator('.rv-line').first().tap();
     await sleep(1200);
     await rateAndLeave(5);

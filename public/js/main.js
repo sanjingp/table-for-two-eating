@@ -678,7 +678,8 @@ function bite(who) {
     if (isPlayer) UI.toast('All gone! Time to rate it ⭐');
     return;
   }
-  if (who.emote === 'bite') return;
+  // Emotes can replace the bite pose before its held food and timers finish.
+  if (who.heldItem || who.emote === 'bite') return;
   who.playEmote('bite');
   const mini = createFood(S.item.id, undefined, S.item.tint);
   mini.scale.setScalar(0.45);

@@ -38,6 +38,12 @@
     Mystery Plate flow, scrapbook counts, reaction emote relay.
   - Spawn view: 94 → 106 draw calls, 45k → 63k triangles.
 
+- [x] **Phase 1 reviewer pass (Oct 10 2026)**
+  - Prevent overlapping bites when an emote replaces the bite pose: keep the bite blocked until its held food is cleared,
+    so an earlier timer cannot remove a newer bite's food or interrupt it with a reaction.
+  - Added an end-to-end regression for bite → emote → bite; it failed before the fix. Full `npm test` now passes,
+    including multiplayer reaction relay, server message validation, Mystery Plate and the iPad draw-call budget.
+
 ## Next (ideas-v2.md)
 - Phase 2: the other 8 restaurants (Noodle Ninja, Seoul Bites, Curry Castle, Pasta Porch, Sunny Café, Fish & Ships,
   Pita Picnic, Cozy BBQ), sushi conveyor belt, sticker passport + hats, bounce pads + working slide
