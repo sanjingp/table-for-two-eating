@@ -1,5 +1,6 @@
 // Shared between the browser client and the Node server (server imports this file).
 // Single source of truth for every enum / preset that crosses the network.
+import { RESTAURANTS } from './data.js';
 
 export const HAIR_STYLES = ['short', 'long', 'ponytail', 'pigtails', 'curly', 'afropuff', 'bun'];
 export const TOPS = ['tshirt', 'hoodie', 'dress'];
@@ -7,7 +8,8 @@ export const JACKETS = ['none', 'jean', 'puffer', 'raincoat'];
 export const BOTTOMS = ['pants', 'shorts', 'skirt', 'leggings'];
 export const SHOES = ['sneakers', 'boots', 'sandals', 'lightup'];
 
-export const EMOTES = ['wave', 'yum', 'wow', 'thumbs', 'silly', 'kiss', 'dance', 'heart', 'jump'];
+export const EMOTES = ['wave', 'yum', 'wow', 'thumbs', 'silly', 'kiss', 'dance', 'heart', 'jump',
+  'spicy', 'sour', 'cold', 'yuck']; // the last four are food reactions
 export const ANIMS = ['idle', 'walk', 'review'];
 
 // Preset speech lines. Only the index is sent over the network — never free text.
@@ -32,7 +34,7 @@ export const NAME_ADJ = ['Sparkly', 'Happy', 'Silly', 'Speedy', 'Cozy', 'Super',
 export const NAME_NOUN = ['Taco', 'Noodle', 'Dumpling', 'Cupcake', 'Pickle', 'Waffle', 'Nugget', 'Muffin',
   'Burrito', 'Cookie', 'Pancake', 'Mango', 'Donut', 'Pretzel', 'Sprinkle', 'Meatball'];
 
-export const RESTAURANT_IDS = ['china', 'jj', 'cfa', 'mcd', 'chipotle', 'subway', 'tacobell'];
+export const RESTAURANT_IDS = RESTAURANTS.map((r) => r.id);
 
 export const WORLD_LIMIT = 60;
 

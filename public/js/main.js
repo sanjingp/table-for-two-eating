@@ -1,10 +1,10 @@
 // Table for Two Eating — game bootstrap, modes and main loop.
 import * as THREE from '../vendor/three.module.js';
 import { LINES, isValidRoom, repairAppearance, ROOM_WORDS_A, ROOM_WORDS_B } from './schema.js';
-import { RESTAURANT_BY_ID, REVIEW_EMOTES, REVIEW_LINES, PLAZA_EMOTES, PLAZA_LINES, COHOST } from './data.js';
+import { REVIEW_EMOTES, REVIEW_LINES, PLAZA_EMOTES, PLAZA_LINES, COHOST, FOOD_REACTIONS, MYSTERY_TWISTS } from './data.js';
 import { $, clamp, damp, lerpAngle, pick, randInt, emojiTexture } from './util.js';
 import { Character } from './character.js';
-import { buildWorld, RING_RADIUS } from './world.js';
+import { buildWorld, RING_RADIUS, WORLD_RADIUS } from './world.js';
 import { createFood } from './food.js';
 import { Controls } from './controls.js';
 import { Net } from './net.js';
@@ -82,6 +82,7 @@ const S = {
   restaurant: null,
   item: null,
   plazaPos: new THREE.Vector3(),
+  rolling: false,
   recStart: 0,
   bites: 0,
   food: null,
@@ -572,7 +573,8 @@ function enterRestaurant(r) {
     seat(cohost, 1);
     camera.position.copy(world.interior.camPos).add(ORDER_CAM_OFFSET);
     camera.lookAt(world.interior.camTarget);
-    UI.buildOrder(r, orderFood);
+    setRolling(false);
+    UI.buildOrder(r, (item) => !S.rolling && orderFood(item));
     UI.show('#screen-order', true);
     S.mode = 'order';
     sendState(true);
@@ -586,10 +588,10 @@ function orderFood(item) {
   const r = S.restaurant;
   disposeFood(S.food);
   disposeFood(S.cohostFood);
-  S.food = createFood(item.id, r.accent);
+  S.food = createFood(item.id, r.accent, item.tint);
   S.food.position.copy(world.interior.plates[0]).add(FOOD_LIFT);
   scene.add(S.food);
-  S.cohostFood = createFood(item.id, r.accent);
+  S.cohostFood = createFood(item.id, r.accent, item.tint);
   S.cohostFood.position.copy(world.interior.plates[1]).add(FOOD_LIFT);
   S.cohostFood.rotation.y = 0.6;
   scene.add(S.cohostFood);
@@ -598,6 +600,33 @@ function orderFood(item) {
   UI.show('#screen-order', false);
   startReview();
 }
+
+// Mystery Plate: a random item from this menu, usually with a silly twist (2 times in 3).
+function rollMystery(r) {
+  const base = pick(r.menu);
+  if (randInt(3) === 2) return base;
+  const twist = pick(MYSTERY_TWISTS);
+  return { ...base, name: `${twist.word} ${base.name}`, emoji: twist.emoji, react: twist.react, tint: twist.tint, twist: twist.id };
+}
+
+function setRolling(on) {
+  S.rolling = on;
+  $('#order-surprise').classList.toggle('rolling', on);
+}
+
+function orderSurprise() {
+  if (S.mode !== 'order' || S.rolling) return;
+  setRolling(true);
+  sfx.drumroll();
+  const item = rollMystery(S.restaurant);
+  later(() => {
+    setRolling(false);
+    if (S.mode !== 'order') return;
+    orderFood(item);
+    UI.toast(`🎲 Surprise! ${item.emoji} ${item.name}!`, 3200);
+  }, 700);
+}
+$('#order-surprise').addEventListener('click', orderSurprise);
 
 function reviewPanelHeight() {
   const el = $('.review-controls');
@@ -651,7 +680,7 @@ function bite(who) {
   }
   if (who.emote === 'bite') return;
   who.playEmote('bite');
-  const mini = createFood(S.item.id);
+  const mini = createFood(S.item.id, undefined, S.item.tint);
   mini.scale.setScalar(0.45);
   mini.rotation.set(Math.PI / 2, 0, 0);
   who.setHeldItem(mini);
@@ -670,7 +699,19 @@ function bite(who) {
   later(() => {
     who.setHeldItem(null);
     disposeFood(mini);
+    foodReaction(who);
   }, 950);
+}
+
+/** Spicy, sour, cold or a Mystery Plate twist: whoever took the bite reacts to it. */
+function foodReaction(who) {
+  const kind = S.item?.react;
+  if (!kind || S.mode !== 'review') return;
+  who.playEmote(kind);
+  if (who !== player) return;
+  net.sendEmote(kind);
+  (sfx[kind] || sfx.sparkle)();
+  if (S.bites === 1) UI.toast(FOOD_REACTIONS[kind].toast);
 }
 
 $('#btn-talk').addEventListener('click', () => {
@@ -715,6 +756,7 @@ function leaveRestaurant() {
   if (!S.restaurant) return;
   S.mode = 'transition';
   clearLater();
+  setRolling(false);
   fade(() => {
     const r = S.restaurant;
     disposeFood(S.food);
@@ -910,6 +952,10 @@ window.__t42 = {
   netStatus: () => net.status,
   restaurants: () => world.restaurants.map((r) => ({ id: r.id, door: { x: r.door.x, z: r.door.z } })),
   ringRadius: RING_RADIUS,
+  worldRadius: WORLD_RADIUS,
+  item: () => S.item && { id: S.item.id, name: S.item.name, react: S.item.react || null, twist: S.item.twist || null },
+  playerEmote: () => player.emote,
+  remoteEmotes: () => [...remotes.values()].map((e) => e.char.emote),
   renderInfo: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }),
   /** Test helper: move the local player (plaza only). */
   teleport: (x, z, yaw) => {

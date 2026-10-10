@@ -1,7 +1,7 @@
 // DOM builders for the menu screens. All text shown comes from preset lists — never from other players.
 import { h, $, pick } from './util.js';
 import { HAIR_STYLES, NAME_ADJ, NAME_NOUN, SKIN_STOPS, LINES, RESTAURANT_IDS } from './schema.js';
-import { HAIR_STYLE_INFO, HAIR_COLORS, EYE_COLORS, CLOTH_COLORS, CLOTHES, EMOTE_INFO, MOODS, RESTAURANT_BY_ID } from './data.js';
+import { HAIR_STYLE_INFO, HAIR_COLORS, EYE_COLORS, CLOTH_COLORS, CLOTHES, EMOTE_INFO, MOODS, RESTAURANT_BY_ID, FOOD_REACTIONS } from './data.js';
 import { sfx } from './audio.js';
 
 let toastTimer = 0;
@@ -181,6 +181,7 @@ export function buildEmotePanel(emotes, lines, onEmote, onSay) {
 export function buildOrder(r, onPick) {
   $('#order-rest').textContent = r.name;
   $('#order-menu').replaceChildren(...r.menu.map((item) => h('button.menu-item', { onclick: () => onPick(item) },
+    item.react && h('span.mi-tag', { 'aria-label': FOOD_REACTIONS[item.react].label }, FOOD_REACTIONS[item.react].tag),
     h('span.mi-emoji', {}, item.emoji),
     h('span.mi-name', {}, item.name),
     h('span.mi-blurb', {}, item.blurb))));
@@ -198,7 +199,7 @@ export function buildReviewControls(emotes, lines, { onEmote, onBite, onSay }) {
 // ------------------------------------------------------------------ rating
 export function buildRate(item, onDone) {
   let stars = 0;
-  let mood = '😋';
+  let mood = item.react === 'yuck' ? '🤢' : '😋'; // a yucky Mystery Plate starts on the queasy face
   $('#rate-food').replaceChildren(item.emoji, h('small', {}, item.name));
   const save = $('#rate-save');
   save.disabled = true;
@@ -220,7 +221,7 @@ export function buildRate(item, onDone) {
       moodBtns.forEach((b) => b.classList.toggle('on', b.textContent === m));
     },
   }, m));
-  moodBtns[2].classList.add('on');
+  moodBtns[MOODS.indexOf(mood)].classList.add('on');
   $('#rate-moods').replaceChildren(...moodBtns);
   save.onclick = () => {
     if (!stars) return;
@@ -234,7 +235,7 @@ export function buildBook(stats) {
   const total = Object.values(stats).reduce((a, s) => a + s.count, 0);
   const visited = Object.values(stats).filter((s) => s.count).length;
   $('#book-summary').textContent = total
-    ? `You've filmed ${total} review${total === 1 ? '' : 's'} at ${visited} of 7 restaurants! ${visited === 7 ? '🏆 Super Reviewer!' : '🎬'}`
+    ? `You've filmed ${total} review${total === 1 ? '' : 's'} at ${visited} of ${RESTAURANT_IDS.length} restaurants! ${visited === RESTAURANT_IDS.length ? '🏆 Super Reviewer!' : '🎬'}`
     : 'No reviews yet — go film your first one! 🎬';
   const tilts = ['-1.2deg', '0.8deg', '-0.5deg', '1.1deg', '-0.9deg', '0.4deg', '-0.3deg'];
   $('#book-grid').replaceChildren(...RESTAURANT_IDS.map((id, i) => {
@@ -248,7 +249,7 @@ export function buildBook(stats) {
         h('span.fe', {}, rv.emoji), h('span.fn', {}, rv.food), h('span.st', {}, starStr(rv.stars)), h('span', {}, rv.mood))))
       : h('div.empty', {}, 'Not visited yet! 🚪');
     const page = h('div.book-page', {}, header, body);
-    page.style.setProperty('--tilt', tilts[i]); // custom properties need setProperty
+    page.style.setProperty('--tilt', tilts[i % tilts.length]); // custom properties need setProperty
     return page;
   }));
 }

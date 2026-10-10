@@ -117,6 +117,25 @@ export const sfx = {
     tone(NOTES.G5, 0.15, { type: 'triangle', vol: 0.2 });
     tone(NOTES.C6, 0.25, { type: 'triangle', vol: 0.2, delay: 0.12 });
   },
+  drumroll: () => {
+    for (let i = 0; i < 11; i++) noise(0.05, { vol: 0.16 + i * 0.02, freq: 500 + i * 40, q: 1.4, delay: i * 0.055 });
+  },
+  // food reactions (keyed by reaction name)
+  spicy: () => {
+    noise(0.6, { vol: 0.2, freq: 3400, q: 0.7 });
+    tone(420, 0.5, { type: 'sawtooth', vol: 0.07, slide: 1500 });
+  },
+  sour: () => {
+    tone(1250, 0.28, { type: 'triangle', vol: 0.18, slide: 520 });
+    tone(1400, 0.3, { type: 'triangle', vol: 0.14, slide: 600, delay: 0.14 });
+  },
+  cold: () => {
+    for (let i = 0; i < 7; i++) tone(1500 + (i % 2) * 320, 0.05, { vol: 0.12, delay: i * 0.065 });
+  },
+  yuck: () => {
+    tone(280, 0.45, { type: 'sawtooth', vol: 0.09, slide: 105 });
+    tone(190, 0.3, { type: 'square', vol: 0.04, slide: 90, delay: 0.2 });
+  },
 };
 
 // ------------------------------------------------------------- speech

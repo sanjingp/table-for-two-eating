@@ -43,8 +43,19 @@ const TIE = new THREE.MeshLambertMaterial({ color: '#ff5fa2' });
 const CAMERA_BODY = new THREE.MeshLambertMaterial({ color: '#ff7eb6' });
 const CAMERA_LENS = new THREE.MeshLambertMaterial({ color: '#3a3150' });
 const CAMERA_LIGHT = new THREE.MeshLambertMaterial({ color: '#ff3b3b', emissive: '#aa0000' });
+const STEAM = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#bbbbbb', transparent: true, opacity: 0.85, depthWrite: false });
 
-const EMOTE_DURATION = { wave: 1.8, yum: 1.8, wow: 1.6, thumbs: 1.6, silly: 1.8, kiss: 1.6, dance: 2.4, heart: 1.8, jump: 0.7, bite: 1.0 };
+const EMOTE_DURATION = {
+  wave: 1.8, yum: 1.8, wow: 1.6, thumbs: 1.6, silly: 1.8, kiss: 1.6, dance: 2.4, heart: 1.8, jump: 0.7, bite: 1.0,
+  spicy: 2.2, sour: 1.7, cold: 2.0, yuck: 1.8,
+};
+// Food reactions flush the skin toward a color: [tint, how far].
+const FLUSH = {
+  spicy: [new THREE.Color('#ff2a1f'), 0.55],
+  sour: [new THREE.Color('#ffe14d'), 0.35],
+  cold: [new THREE.Color('#6fb8ff'), 0.5],
+  yuck: [new THREE.Color('#7fc24a'), 0.5],
+};
 
 export class Character {
   constructor(app, { scale = 1, label = null } = {}) {
@@ -80,6 +91,9 @@ export class Character {
     this.bubbleT = 0;
     this.labelSprite = null;
     this.lightHue = 0;
+    this.skinBase = new THREE.Color();
+    this.flushed = false;
+    this.steam = null;
 
     this.app = null;
     this.setAppearance(app);
@@ -91,7 +105,7 @@ export class Character {
     const prev = this.app;
     this.app = { ...app };
     const m = this.mats;
-    m.skin.color.set(skinColor(app.skin));
+    m.skin.color.copy(this.skinBase.set(skinColor(app.skin)));
     m.hair.color.set(app.hair);
     m.iris.color.set(app.eyes);
     m.top.color.set(app.topColor);
@@ -441,7 +455,7 @@ export class Character {
       armLx: -s * 0.65 * w, armRx: s * 0.65 * w, armLz: -0.12, armRz: 0.12,
       legLx: s * 0.75 * w, legRx: -s * 0.75 * w,
       bodyY: Math.abs(Math.cos(this.phase)) * 0.07 * w + breath,
-      headX: 0, headZ: Math.sin(this.time * 1.3) * 0.03, headY: 0, bodyRy: 0, mouth: 'smile', squint: false, thumb: false,
+      headX: 0, headZ: Math.sin(this.time * 1.3) * 0.03, headY: 0, bodyRy: 0, bodyX: 0, mouth: 'smile', squint: false, thumb: false,
     };
     if (this.pose === 'sit') {
       P.legLx = P.legRx = -1.45;
@@ -455,31 +469,40 @@ export class Character {
 
     // Emote overlay
     if (this.emote !== 'jump') this.jumpY = 0;
+    let flush = null;
+    let flushK = 0;
     if (this.emote) {
       const dur = EMOTE_DURATION[this.emote];
       this.emoteT += dt;
       const t = this.emoteT;
-      const k = smooth01(Math.min(1, t / 0.18)) * smooth01(Math.min(1, (dur - t) / 0.22));
+      const k = smooth01(Math.min(1, t / 0.18)) * smooth01(Math.max(0, Math.min(1, (dur - t) / 0.22)));
       const E = this.emotePose(this.emote, t, dur);
       for (const key in E) {
         if (typeof E[key] === 'number') P[key] = lerp(P[key], E[key], k);
         else P[key] = E[key];
       }
+      flush = FLUSH[this.emote];
+      flushK = k;
       if (t >= dur) this.emote = null;
     }
+    this.updateSteam(this.emote === 'spicy');
+    if (flush) this.mats.skin.color.copy(this.skinBase).lerp(flush[0], flush[1] * flushK);
+    else if (this.flushed) this.mats.skin.color.copy(this.skinBase);
+    this.flushed = !!flush;
 
     // Apply
     this.armL.rotation.set(P.armLx, 0, P.armLz);
     this.armR.rotation.set(P.armRx, 0, P.armRz);
     this.legL.rotation.x = P.legLx;
     this.legR.rotation.x = P.legRx;
-    this.body.position.y = P.bodyY + this.jumpY;
+    this.body.position.set(P.bodyX, P.bodyY + this.jumpY, 0);
     this.body.rotation.y = P.bodyRy;
     this.head.rotation.set(P.headX, P.headY, P.headZ);
     this.mouthSmile.visible = P.mouth === 'smile' || P.mouth === 'tongue';
-    this.mouthO.visible = P.mouth === 'o' || P.mouth === 'chomp';
+    this.mouthO.visible = P.mouth === 'o' || P.mouth === 'chomp' || P.mouth === 'pucker';
+    this.mouthO.scale.x = P.mouth === 'pucker' ? 0.5 : 1;
     if (P.mouth === 'chomp') this.mouthO.scale.y = 0.4 + Math.abs(Math.sin(this.time * 18)) * 1.0;
-    else this.mouthO.scale.y = 1.2;
+    else this.mouthO.scale.y = P.mouth === 'pucker' ? 0.55 : 1.2;
     this.tongue.visible = P.mouth === 'tongue';
     this.thumb.visible = P.thumb;
 
@@ -514,6 +537,27 @@ export class Character {
         this.bubble = null;
       }
     }
+  }
+
+  /** Little puffs of steam out of both ears (spicy food!). Built on first use. */
+  updateSteam(on) {
+    if (!on) {
+      if (this.steam) this.steam.visible = false;
+      return;
+    }
+    if (!this.steam) {
+      this.steam = new THREE.Group();
+      for (let i = 0; i < 4; i++) add(this.steam, G.sphere(0.07, 8, 6), STEAM);
+      this.root.add(this.steam);
+    }
+    this.steam.visible = true;
+    const s = this.scaleFactor;
+    this.steam.children.forEach((puff, i) => {
+      const side = i % 2 ? 1 : -1;
+      const f = (this.emoteT * 1.3 + (i >> 1) * 0.5) % 1;
+      puff.position.set(side * (0.42 + f * 0.22) * s, (1.45 + f * 0.55) * s, 0);
+      puff.scale.setScalar((0.5 + f * 1.3) * Math.sin(f * Math.PI) * s);
+    });
   }
 
   emotePose(name, t, dur) {
@@ -553,6 +597,17 @@ export class Character {
           ? { armRx: -2.35, armRz: -0.5, mouth: f > 0.3 ? 'chomp' : 'o', squint: f > 0.35 }
           : { armRx: -0.9, armRz: -0.2, mouth: 'smile', squint: true };
       }
+      // ---- food reactions
+      case 'spicy': { // fan the mouth with both hands and hop about
+        const fan = Math.sin(t * 24) * 0.28;
+        return { armRx: -2.15, armLx: -2.15, armRz: -0.4 + fan, armLz: 0.4 - fan, bodyY: Math.abs(Math.sin(t * 9)) * 0.1, headX: -0.2, mouth: 'o' };
+      }
+      case 'sour': // pucker up and shudder
+        return { armRx: -0.35, armLx: -0.35, armRz: 0.5, armLz: -0.5, bodyX: Math.sin(t * 34) * 0.012, headX: 0.14, headY: Math.sin(t * 28) * 0.14 * (1 - f), mouth: 'pucker', squint: true };
+      case 'cold': // brain freeze: hug yourself and shiver, teeth chattering
+        return { armRx: -1.0, armLx: -1.0, armRz: -0.9, armLz: 0.9, bodyX: Math.sin(t * 42) * 0.016, headZ: Math.sin(t * 36) * 0.04, mouth: 'chomp', squint: true };
+      case 'yuck': // tongue out, shake the head, push the plate away
+        return { armRx: -1.25, armRz: 0.45, armLx: -1.25, armLz: -0.45, headY: Math.sin(t * 9) * 0.38, headX: -0.08, mouth: 'tongue', squint: true };
     }
     return {};
   }

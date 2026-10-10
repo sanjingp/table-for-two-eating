@@ -207,13 +207,24 @@ body { position: fixed; inset: 0; }
 .next-btn { width: 100%; margin-top: 20px; }
 
 /* order */
-.order-card { width: min(760px, 96vw); }
+.order-card { width: min(1000px, 96vw); }
 .menu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 10px 0 18px; }
 .menu-item {
   font-family: var(--font); color: var(--ink); background: #fff; border-radius: 26px; border: 4px solid #ffd6ec; min-height: 170px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px; cursor: pointer;
-  box-shadow: 0 6px 0 #ffd6ec; touch-action: manipulation; transition: transform .08s;
+  box-shadow: 0 6px 0 #ffd6ec; touch-action: manipulation; transition: transform .08s; position: relative;
+  width: 100%; max-width: 240px; justify-self: center;
 }
+.menu-item .mi-tag {
+  position: absolute; top: 5px; right: 5px; width: 36px; height: 36px; border-radius: 50%; background: #fff7d6; border: 3px solid #ffe08a;
+  display: flex; align-items: center; justify-content: center; font-size: 19px; line-height: 1;
+}
+.order-actions { display: flex; gap: 14px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.surprise { font-size: 24px; min-height: 68px; padding: 10px 28px; }
+.surprise .dice { font-size: 32px; display: inline-block; }
+.surprise.rolling { pointer-events: none; }
+.surprise.rolling .dice { animation: diceRoll .35s linear infinite; }
+@keyframes diceRoll { from { transform: rotate(0) scale(1.15); } to { transform: rotate(360deg) scale(1.15); } }
 .menu-item:active { transform: translateY(4px) scale(.97); box-shadow: 0 2px 0 #ffd6ec; }
 .menu-item .mi-emoji { font-size: 60px; line-height: 1.1; }
 .menu-item .mi-name { font-weight: 900; font-size: 20px; }

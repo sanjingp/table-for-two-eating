@@ -1,11 +1,15 @@
-// The town: plaza, fountain, seven original restaurant buildings, trees, flowers,
+// The town: plaza, fountain, a ring of original restaurant buildings, trees, flowers,
 // plus a cozy interior "set" (far away in the same scene) used for review mode.
+// Everything is laid out from RESTAURANTS.length, so adding a restaurant is data-only.
 import * as THREE from '../vendor/three.module.js';
 import { RESTAURANTS } from './data.js';
 import { mat, signTexture, starsCanvas, checkerTexture, stripeTexture, clamp, mergeStatic } from './util.js';
 
-export const RING_RADIUS = 27;
-export const WORLD_RADIUS = 41;
+export const RING_RADIUS = 39; // room for ~20 buildings (each 8–11 wide)
+export const WORLD_RADIUS = 48; // walkable edge; must stay under WORLD_LIMIT (schema.js)
+const PLAZA_RADIUS = 16;
+/** Angle of ring slot `i` (fractions sit between buildings). Slot 0 is straight ahead of the spawn point. */
+const ringAngle = (i) => (i / RESTAURANTS.length) * Math.PI * 2 + Math.PI;
 export const INTERIOR_ORIGIN = new THREE.Vector3(0, 0, 400);
 
 // --------------------------------------------------------------------- helpers
@@ -60,19 +64,20 @@ function flowerPatch(scene, count) {
   let n = 0;
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  while (n < count) {
+  // rejection sampling, with a cap on tries so a crowded town can never hang the page
+  for (let tries = 0; n < count && tries < count * 50; tries++) {
     const a = rnd() * Math.PI * 2;
-    const r = 16.5 + rnd() * 24;
+    const r = PLAZA_RADIUS + 0.5 + rnd() * (WORLD_RADIUS - PLAZA_RADIUS - 1);
     const x = Math.sin(a) * r;
     const z = Math.cos(a) * r;
-    // keep flowers off building footprints & doorways
-    const nearBuilding = RESTAURANTS.some((_, i) => {
-      const ba = (i / RESTAURANTS.length) * Math.PI * 2 + Math.PI;
-      const bx = Math.sin(ba) * RING_RADIUS;
-      const bz = Math.cos(ba) * RING_RADIUS;
-      return Math.hypot(x - bx, z - bz) < 8.5;
+    // keep flowers off building footprints, doorways & the paths leading to them
+    const inTheWay = RESTAURANTS.some((_, i) => {
+      const ba = ringAngle(i);
+      const along = x * Math.sin(ba) + z * Math.cos(ba);
+      const across = Math.abs(x * Math.cos(ba) - z * Math.sin(ba));
+      return (along > 0 && along < RING_RADIUS && across < 2.2) || Math.hypot(along - RING_RADIUS, across) < 8.5;
     });
-    if (nearBuilding) continue;
+    if (inTheWay) continue;
     d.position.set(x, 0.18, z);
     d.scale.set(1, 0.6, 1);
     d.updateMatrix();
@@ -80,6 +85,7 @@ function flowerPatch(scene, count) {
     inst.setColorAt(n, colors[n % colors.length]);
     n++;
   }
+  inst.count = n;
   scene.add(inst);
 }
 
@@ -113,6 +119,117 @@ function awning(g, w, y, z, a, b) {
   g.add(aw);
 }
 
+// Giant rooftop foods. Each is built in its own group with its base at y = 0 and
+// returns its height, so any shell can wear any prop (`prop` in data.js).
+const ROOF_PROPS = {
+  sandwich(s) {
+    add(s, box(4.4, 0.6, 2.4), '#f2c27b', 0, 0.3, 0);
+    add(s, box(4.6, 0.2, 2.6), '#6cc644', 0, 0.7, 0);
+    add(s, box(4.3, 0.35, 2.3), '#f4b7a0', 0, 0.95, 0);
+    add(s, box(4.5, 0.12, 2.5), '#ffcf33', 0, 1.18, 0, 0, 0.06, 0);
+    add(s, box(4.4, 0.6, 2.4), '#f2c27b', 0, 1.55, 0);
+    add(s, cyl(0.05, 0.05, 1.2, 6), '#e9d8a6', 0, 2.2, 0);
+    add(s, sphere(0.22, 10, 8), '#d62828', 0, 2.8, 0);
+    return 3.0;
+  },
+  milkshake(c) {
+    add(c, cyl(0.9, 0.7, 2.2, 16), '#ffc8dd', 0, 1.1, 0);
+    add(c, cyl(0.93, 0.93, 0.35, 16), '#ffffff', 0, 1.6, 0);
+    add(c, sphere(0.85, 14, 10), '#fffaf0', 0, 2.35, 0).scale.y = 0.6;
+    add(c, sphere(0.55, 14, 10), '#fffaf0', 0, 2.75, 0);
+    add(c, sphere(0.28, 10, 8), '#e5383b', 0, 3.35, 0);
+    add(c, cyl(0.1, 0.1, 2.2, 8), '#ff5fa2', 0.35, 3.1, -0.2, 0, 0, -0.3);
+    return 3.6;
+  },
+  burger(b) {
+    add(b, cyl(1.6, 1.5, 0.5, 20), '#e9a64f', 0, 0.25, 0);
+    add(b, cyl(1.7, 1.7, 0.15, 20), '#6cc644', 0, 0.55, 0);
+    add(b, cyl(1.65, 1.65, 0.45, 20), '#6b3a1f', 0, 0.8, 0);
+    add(b, box(2.9, 0.12, 2.9), '#ffcf33', 0, 1.08, 0, 0, Math.PI / 4, 0);
+    add(b, sphere(1.65, 20, 12), '#f0b35f', 0, 1.15, 0).scale.y = 0.6;
+    return 2.15;
+  },
+  burrito(b) {
+    add(b, new THREE.CapsuleGeometry(0.9, 3.6, 4, 14), '#f3dca6', 0.6, 0.9, 0, 0, 0, Math.PI / 2);
+    add(b, cyl(0.95, 0.95, 2.4, 16), '#c9cfd6', -1.0, 0.9, 0, 0, 0, Math.PI / 2);
+    return 1.85;
+  },
+  taco(t) {
+    add(t, new THREE.CylinderGeometry(1.6, 1.6, 3.2, 20, 1, true, Math.PI, Math.PI), mat('#f6c453', { side: THREE.DoubleSide }), 0, 1.6, 0, 0, 0, Math.PI / 2);
+    add(t, box(2.8, 0.9, 1.4), '#6cc644', 0, 1.65, 0);
+    add(t, box(2.6, 0.5, 1.0), '#ffcf33', 0, 1.95, 0);
+    return 2.2;
+  },
+  // one fat piece of maki tipped toward the plaza, chopsticks resting across it
+  maki(p) {
+    const m = new THREE.Group();
+    m.position.y = 0.6;
+    m.rotation.x = 0.8;
+    add(m, cyl(1.3, 1.3, 1.15, 20), '#22382c', 0, 0.575, 0);
+    add(m, cyl(1.16, 1.16, 0.1, 20), '#fbf6ea', 0, 1.16, 0);
+    add(m, cyl(0.36, 0.36, 0.1, 10), '#ff8c69', -0.3, 1.22, 0.02);
+    add(m, cyl(0.3, 0.3, 0.1, 10), '#9bd15b', 0.34, 1.22, -0.04);
+    add(m, cyl(0.26, 0.26, 0.1, 10), '#ffd23f', 0.02, 1.22, -0.5);
+    for (const z of [0.66, 0.92]) add(m, cyl(0.07, 0.05, 3.6, 6), '#c98a3c', 0.15, 1.34, z, 0, 0.12, Math.PI / 2);
+    p.add(m);
+    return 2.45;
+  },
+  // a slice balanced on its tip
+  pizza(p) {
+    const wedge = (r, depth, color, z = 0) => add(p, new THREE.CylinderGeometry(r, r, depth, 8, 1, false, Math.PI - 0.5, 1.0), color, 0, 0.1, z, Math.PI / 2, 0, 0);
+    wedge(2.5, 0.3, '#e9a64f');
+    wedge(2.2, 0.36, '#ffd95a');
+    add(p, new THREE.TorusGeometry(2.5, 0.24, 6, 10, 1.0), '#c98a3c', 0, 0.1, 0, 0, 0, Math.PI / 2 - 0.5);
+    for (const [x, y] of [[0, 0.95], [-0.42, 1.65], [0.42, 1.75]]) add(p, cyl(0.26, 0.26, 0.44, 10), '#b02a2a', x, y + 0.1, 0, Math.PI / 2, 0, 0);
+    p.rotation.z = 0.12;
+    return 2.9;
+  },
+  // a frosted donut standing on its edge
+  donut(d) {
+    add(d, new THREE.TorusGeometry(1.25, 0.6, 10, 22), '#e0a458', 0, 1.85, 0);
+    add(d, new THREE.TorusGeometry(1.25, 0.52, 8, 22), '#ff8fc7', 0, 1.85, 0.22);
+    const cols = ['#ffffff', '#3a86ff', '#ffd23f', '#7ae582', '#9b5de5'];
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const r = 1.1 + (i % 3) * 0.15;
+      add(d, box(0.34, 0.1, 0.1), cols[i % cols.length], Math.cos(a) * r, 1.85 + Math.sin(a) * r, 0.74 - Math.abs(r - 1.25) * 0.3, 0, 0, i * 1.3);
+    }
+    return 3.7;
+  },
+  // a cup of milk tea with chewy pearls and a fat straw
+  boba(c) {
+    add(c, cyl(0.95, 0.7, 2.3, 16), '#e2b98a', 0, 1.15, 0);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const y = 0.28 + (i % 3) * 0.26;
+      add(c, sphere(0.17, 8, 6), '#2b1a12', Math.cos(a) * (0.69 + y * 0.1), y, Math.sin(a) * (0.69 + y * 0.1));
+    }
+    add(c, cyl(1.0, 1.0, 0.16, 16), '#ffffff', 0, 2.38, 0);
+    add(c, cyl(0.17, 0.17, 2.4, 8), '#ff5fa2', 0.2, 3.0, 0, 0, 0, -0.16);
+    return 4.1;
+  },
+  // three scoops in a glass dish, hot fudge and a cherry
+  sundae(u) {
+    add(u, cyl(0.2, 0.6, 0.5, 12), '#d7ecff', 0, 0.25, 0);
+    add(u, cyl(1.45, 0.5, 0.95, 16), '#d7ecff', 0, 0.97, 0);
+    for (const [color, x, z] of [['#fff3d6', -0.6, 0.38], ['#ff9ec4', 0.6, 0.38], ['#7b4a2a', 0, -0.6]]) add(u, sphere(0.72, 12, 8), color, x, 1.65, z);
+    add(u, sphere(0.8, 12, 8), '#4a2b1a', 0, 2.05, 0).scale.y = 0.42;
+    add(u, sphere(0.45, 10, 8), '#fffaf0', 0, 2.45, 0);
+    add(u, sphere(0.24, 10, 8), '#e5383b', 0, 2.98, 0);
+    return 3.25;
+  },
+};
+
+/** Put restaurant r's rooftop prop on shell g at (x, y, z). Returns its top height (0 if it has none). */
+function roofProp(g, r, x, y, z) {
+  if (!r.prop) return 0;
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  const height = ROOF_PROPS[r.prop](p);
+  g.add(p);
+  return y + height;
+}
+
 const BUILDERS = {
   pagoda(g, r) {
     const W = 9;
@@ -125,8 +242,11 @@ const BUILDERS = {
     add(g, box(5.6, 2.2, 4.4), r.wall, 0, 6.3, 0);
     const roof2 = add(g, cone(5.2, 1.6, 4), r.roof, 0, 8.1, 0, 0, Math.PI / 4, 0);
     roof2.scale.set(1, 1, 0.85);
-    add(g, sphere(0.45, 12, 10), r.trim, 0, 9.1, 0);
-    add(g, cyl(0.12, 0.12, 0.8, 8), r.trim, 0, 9.6, 0);
+    const top = roofProp(g, r, 0, 8.7, 0);
+    if (!top) {
+      add(g, sphere(0.45, 12, 10), r.trim, 0, 9.1, 0);
+      add(g, cyl(0.12, 0.12, 0.8, 8), r.trim, 0, 9.6, 0);
+    }
     for (const [x, z] of [[-5.2, 4], [5.2, 4], [-5.2, -4], [5.2, -4]]) add(g, cone(0.35, 0.8, 6), r.trim, x, 4.15, z, 0, 0, 0);
     // gold pillars + round "moon" door frame
     for (const x of [-3.6, 3.6]) add(g, cyl(0.28, 0.28, 3.6, 10), r.trim, x, 2.2, D / 2 + 0.2);
@@ -140,7 +260,7 @@ const BUILDERS = {
       add(g, sphere(0.36, 12, 10), mat('#ff3b30', { emissive: '#ff3b30', emissiveIntensity: 0.4 }), x, 3.45, D / 2 + 1.0).scale.y = 1.2;
       add(g, cyl(0.2, 0.2, 0.1, 10), r.trim, x, 2.98, D / 2 + 1.0);
     }
-    return { w: W, d: D, h: 9.5, signY: 6.35, signZ: 2.25 };
+    return { w: W, d: D, h: Math.max(9.5, top), signY: 6.35, signZ: 2.25 };
   },
 
   deli(g, r) {
@@ -149,28 +269,18 @@ const BUILDERS = {
     add(g, box(W, 4.6, D), r.wall, 0, 2.3, 0);
     add(g, box(W + 0.3, 0.5, D + 0.3), r.roof, 0, 4.85, 0);
     // checker trim band
-    const band = new THREE.Mesh(new THREE.PlaneGeometry(W, 0.5), new THREE.MeshLambertMaterial({ map: checkerTexture('#222222', '#ffffff', 2) }));
+    const band = new THREE.Mesh(new THREE.PlaneGeometry(W, 0.5), new THREE.MeshLambertMaterial({ map: checkerTexture(r.trim, '#ffffff', 2) }));
     band.material.map = band.material.map.clone();
     band.material.map.wrapS = THREE.RepeatWrapping;
     band.material.map.repeat.set(16, 1);
     band.material.map.needsUpdate = true;
     band.position.set(0, 0.35, D / 2 + 0.01);
     g.add(band);
-    door(g, D / 2, '#d62828');
+    door(g, D / 2, r.accent);
     windowsRow(g, W, 1.8, D / 2, '#bfe9ff', 2, 5);
-    awning(g, W - 0.4, 3.2, D / 2, '#d62828', '#ffffff');
-    // giant rooftop sandwich
-    const s = new THREE.Group();
-    s.position.set(0, 5.6, -0.5);
-    add(s, box(4.4, 0.6, 2.4), '#f2c27b', 0, 0, 0);
-    add(s, box(4.6, 0.2, 2.6), '#6cc644', 0, 0.4, 0);
-    add(s, box(4.3, 0.35, 2.3), '#f4b7a0', 0, 0.65, 0);
-    add(s, box(4.5, 0.12, 2.5), '#ffcf33', 0, 0.88, 0, 0, 0.06, 0);
-    add(s, box(4.4, 0.6, 2.4), '#f2c27b', 0, 1.25, 0);
-    add(s, cyl(0.05, 0.05, 1.2, 6), '#e9d8a6', 0, 1.9, 0);
-    add(s, sphere(0.22, 10, 8), '#d62828', 0, 2.5, 0);
-    g.add(s);
-    return { w: W, d: D, h: 8.6, signY: 4.0, signZ: D / 2 + 0.25 };
+    awning(g, W - 0.4, 3.2, D / 2, r.accent, '#ffffff');
+    const top = roofProp(g, r, 0, 5.1, -0.5);
+    return { w: W, d: D, h: Math.max(6.2, top) + 0.4, signY: 4.0, signZ: D / 2 + 0.25 };
   },
 
   cottage(g, r) {
@@ -182,25 +292,16 @@ const BUILDERS = {
     roof.scale.set(1.6, 1, 0.75);
     add(g, box(0.9, 2.2, 0.9), '#b5523b', 2.6, 6.2, -1.2);
     add(g, new THREE.CircleGeometry(0.6, 16), mat('#bfe9ff', { emissive: '#5aa9d6', emissiveIntensity: 0.25 }), 0, 5.0, (D + 1.2) / 2 + 0.02);
-    door(g, D / 2, '#e5383b');
+    door(g, D / 2, r.accent);
     windowsRow(g, W, 2.1, D / 2, '#bfe9ff', 2, 5.2);
-    awning(g, 3, 2.9, D / 2, '#e5383b', '#ffffff');
+    awning(g, 3, 2.9, D / 2, r.accent, '#ffffff');
     // picket fence
     for (const side of [-1, 1]) {
       for (let i = 0; i < 4; i++) add(g, box(0.18, 0.9, 0.08), '#ffffff', side * (1.7 + i * 0.6), 0.45, D / 2 + 1.6);
       add(g, box(2.2, 0.12, 0.06), '#ffffff', side * 2.6, 0.65, D / 2 + 1.6);
     }
-    // giant rooftop milkshake
-    const c = new THREE.Group();
-    c.position.set(-2.2, 5.6, 0.4);
-    add(c, cyl(0.9, 0.7, 2.2, 16), '#ffc8dd', 0, 1.1, 0);
-    add(c, cyl(0.93, 0.93, 0.35, 16), '#ffffff', 0, 1.6, 0);
-    add(c, sphere(0.85, 14, 10), '#fffaf0', 0, 2.35, 0).scale.y = 0.6;
-    add(c, sphere(0.55, 14, 10), '#fffaf0', 0, 2.75, 0);
-    add(c, sphere(0.28, 10, 8), '#e5383b', 0, 3.35, 0);
-    add(c, cyl(0.1, 0.1, 2.2, 8), '#ff5fa2', 0.35, 3.1, -0.2, 0, 0, -0.3);
-    g.add(c);
-    return { w: W, d: D, h: 8.6, signY: 3.2, signZ: D / 2 + 1.0 };
+    const top = roofProp(g, r, -2.2, 5.6, 0.4); // sits on the roof slope
+    return { w: W, d: D, h: Math.max(8.2, top) + 0.4, signY: 3.2, signZ: D / 2 + 1.0 };
   },
 
   diner(g, r) {
@@ -212,22 +313,14 @@ const BUILDERS = {
     add(g, box(W + 0.4, 0.25, D + 0.4), '#ffffff', 0, 4.9, 0);
     door(g, D / 2, '#ffe066');
     windowsRow(g, W, 2.0, D / 2, '#bfe9ff', 2, 5.2);
-    // big rooftop burger
-    const b = new THREE.Group();
-    b.position.set(0, 5.2, -0.6);
-    add(b, cyl(1.6, 1.5, 0.5, 20), '#e9a64f', 0, 0.25, 0);
-    add(b, cyl(1.7, 1.7, 0.15, 20), '#6cc644', 0, 0.55, 0);
-    add(b, cyl(1.65, 1.65, 0.45, 20), '#6b3a1f', 0, 0.8, 0);
-    add(b, box(2.9, 0.12, 2.9), '#ffcf33', 0, 1.08, 0, 0, Math.PI / 4, 0);
-    add(b, sphere(1.65, 20, 12), '#f0b35f', 0, 1.15, 0).scale.y = 0.6;
-    g.add(b);
+    const top = roofProp(g, r, 0, 5.03, -0.6);
     // little side slide
     const s = new THREE.Group();
     s.position.set(W / 2 + 1.8, 0, 1);
     add(s, box(1.2, 2.2, 1.2), '#3a86ff', 0, 1.1, -1.2);
     add(s, box(1, 0.15, 3), '#ffd23f', 0, 1.1, 0.6, -0.6, 0, 0);
     g.add(s);
-    return { w: W + 2, d: D, h: 8.0, signY: 3.6, signZ: D / 2 + 0.25 };
+    return { w: W + 2, d: D, h: Math.max(6.2, top) + 0.7, signY: 3.6, signZ: D / 2 + 0.25 };
   },
 
   adobe(g, r) {
@@ -236,7 +329,7 @@ const BUILDERS = {
     add(g, box(W, 3.8, D), r.wall, 0, 1.9, 0);
     add(g, box(W + 0.4, 0.6, D + 0.4), r.roof, 0, 4.0, 0);
     for (let i = 0; i < 6; i++) if (i !== 2 && i !== 3) add(g, cyl(0.16, 0.16, 1.0, 8), '#7b4a2a', -3.6 + i * 1.45, 3.45, D / 2 + 0.3, Math.PI / 2, 0, 0);
-    door(g, D / 2, '#7a2e1b', r.trim);
+    door(g, D / 2, r.accent, r.trim);
     windowsRow(g, W, 1.9, D / 2, '#bfe9ff', 2, 5.4);
     // cactus pots
     for (const x of [-3.2, 3.2]) {
@@ -246,13 +339,8 @@ const BUILDERS = {
       add(g, cyl(0.15, 0.15, 0.6, 8), '#3a9a4a', x + 0.4, 1.4, D / 2 + 1.1, 0, 0, 0.9);
       add(g, sphere(0.12, 8, 6), '#ff7eb6', x, 2.3, D / 2 + 1.1);
     }
-    // rooftop foil-wrapped burrito
-    const b = new THREE.Group();
-    b.position.set(0, 5.0, -0.5);
-    add(b, new THREE.CapsuleGeometry(0.9, 3.6, 4, 14), '#f3dca6', 0.6, 0, 0, 0, 0, Math.PI / 2);
-    add(b, cyl(0.95, 0.95, 2.4, 16), '#c9cfd6', -1.0, 0, 0, 0, 0, Math.PI / 2);
-    g.add(b);
-    return { w: W, d: D, h: 7.0, signY: 3.25, signZ: D / 2 + 0.15 };
+    const top = roofProp(g, r, 0, 4.3, -0.5);
+    return { w: W, d: D, h: Math.max(5.6, top) + 0.8, signY: 3.25, signZ: D / 2 + 0.15 };
   },
 
   train(g, r) {
@@ -274,7 +362,8 @@ const BUILDERS = {
     }
     add(g, cyl(0.25, 0.3, 1.2, 10), '#3b3355', 3.8, 6.8, 0);
     add(g, cyl(0.4, 0.25, 0.3, 10), '#3b3355', 3.8, 7.5, 0);
-    return { w: W, d: D, h: 9.0, signY: 4.7, signZ: D / 2 - 0.1 };
+    const top = roofProp(g, r, -0.4, 6.35, 0);
+    return { w: W, d: D, h: Math.max(8.3, top) + 0.7, signY: 4.7, signZ: D / 2 - 0.1 };
   },
 
   mission(g, r) {
@@ -291,13 +380,7 @@ const BUILDERS = {
     for (const x of [-1.1, 1.1]) add(g, box(0.44, 2.5, 0.44), r.trim, x, 1.25, D / 2 + 0.1);
     door(g, D / 2, '#5a2ea6', r.trim);
     windowsRow(g, W, 2.0, D / 2, '#bfe9ff', 2, 5.4);
-    // giant taco on the roof
-    const t = new THREE.Group();
-    t.position.set(0, 5.6, -1);
-    add(t, new THREE.CylinderGeometry(1.6, 1.6, 3.2, 20, 1, true, Math.PI, Math.PI), mat('#f6c453', { side: THREE.DoubleSide }), 0, 0, 0, 0, 0, Math.PI / 2);
-    add(t, box(2.8, 0.9, 1.4), '#6cc644', 0, 0.05, 0);
-    add(t, box(2.6, 0.5, 1.0), '#ffcf33', 0, 0.35, 0);
-    g.add(t);
+    const top = roofProp(g, r, 0, 4.25, -1);
     // mini palms
     for (const x of [-5.6, 5.6]) {
       add(g, cyl(0.18, 0.25, 3.2, 8), '#a0703c', x, 1.6, D / 2 - 1);
@@ -306,7 +389,7 @@ const BUILDERS = {
         leaf.translateX(0.8);
       }
     }
-    return { w: W + 2.4, d: D, h: 7.5, signY: 4.4, signZ: D / 2 + 0.35 };
+    return { w: W + 2.4, d: D, h: Math.max(6.4, top) + 0.8, signY: 4.4, signZ: D / 2 + 0.35 };
   },
 };
 
@@ -332,7 +415,7 @@ export function buildWorld(scene) {
   const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
   sky.renderOrder = -1;
   scene.add(sky);
-  scene.fog = new THREE.Fog('#ffe9f4', 55, 140);
+  scene.fog = new THREE.Fog('#ffe9f4', 65, 165);
 
   scene.add(new THREE.HemisphereLight('#ffffff', '#9fd68a', 1.9));
   const sun = new THREE.DirectionalLight('#fff2dc', 1.6);
@@ -341,8 +424,8 @@ export function buildWorld(scene) {
 
   // ground + plaza
   add(staticRoot, new THREE.CircleGeometry(150, 48), '#8fd16a', 0, 0, 0, -Math.PI / 2);
-  add(staticRoot, new THREE.CircleGeometry(16, 48), '#ffe7b8', 0, 0.02, 0, -Math.PI / 2);
-  add(staticRoot, new THREE.RingGeometry(16, 16.9, 48), '#f6b98b', 0, 0.025, 0, -Math.PI / 2);
+  add(staticRoot, new THREE.CircleGeometry(PLAZA_RADIUS, 48), '#ffe7b8', 0, 0.02, 0, -Math.PI / 2);
+  add(staticRoot, new THREE.RingGeometry(PLAZA_RADIUS, PLAZA_RADIUS + 0.9, 48), '#f6b98b', 0, 0.025, 0, -Math.PI / 2);
   add(staticRoot, new THREE.RingGeometry(6, 6.6, 40), '#ffb3d9', 0, 0.03, 0, -Math.PI / 2);
   add(staticRoot, new THREE.RingGeometry(10.5, 11, 48), '#c8b6ff', 0, 0.03, 0, -Math.PI / 2);
   for (let i = 0; i < 16; i++) {
@@ -376,14 +459,16 @@ export function buildWorld(scene) {
   });
   colliders.push({ type: 'circle', x: 0, z: 0, r: 3.6 });
 
-  // welcome arch at the south entrance
+  // welcome arch: a gateway over the path on the far side of the fountain from slot 0
+  const N = RESTAURANTS.length;
+  const archA = ringAngle(Math.round(N / 2));
   const arch = new THREE.Group();
-  arch.position.set(0, 0, 20.5);
-  arch.rotation.y = Math.PI;
+  arch.position.set(Math.sin(archA) * 20.5, 0, Math.cos(archA) * 20.5);
+  arch.rotation.y = archA + Math.PI;
   for (const x of [-3.2, 3.2]) {
     add(arch, cyl(0.3, 0.35, 4.6, 10), '#ff8fc7', x, 2.3, 0);
     add(arch, sphere(0.5, 12, 10), '#ffd23f', x, 4.8, 0);
-    colliders.push({ type: 'circle', x: x, z: 20.5, r: 0.5 });
+    colliders.push({ type: 'circle', x: arch.position.x + x * Math.cos(arch.rotation.y), z: arch.position.z - x * Math.sin(arch.rotation.y), r: 0.5 });
   }
   add(arch, box(7.2, 1.2, 0.3), '#9b5de5', 0, 4.3, 0);
   const welcome = new THREE.Mesh(new THREE.PlaneGeometry(6.8, 1.7), new THREE.MeshBasicMaterial({
@@ -397,19 +482,18 @@ export function buildWorld(scene) {
   arch.add(welcomeBack);
   staticRoot.add(arch);
 
-  // lamps + benches around the plaza
-  for (let i = 0; i < 7; i++) {
-    const a = ((i + 0.5) / 7) * Math.PI * 2 + Math.PI;
-    lamp(staticRoot, Math.sin(a) * 14.5, Math.cos(a) * 14.5);
-    colliders.push({ type: 'circle', x: Math.sin(a) * 14.5, z: Math.cos(a) * 14.5, r: 0.35 });
-    const ba = a + 0.17;
-    bench(staticRoot, Math.sin(ba) * 13.2, Math.cos(ba) * 13.2, ba + Math.PI);
+  // lamps + benches around the plaza, between the paths (every other gap once the town is crowded)
+  for (let i = 0; i < N; i += Math.ceil(N / 12)) {
+    const a = ringAngle(i + 0.5);
+    lamp(staticRoot, Math.sin(a) * 14.6, Math.cos(a) * 14.6);
+    colliders.push({ type: 'circle', x: Math.sin(a) * 14.6, z: Math.cos(a) * 14.6, r: 0.35 });
+    bench(staticRoot, Math.sin(a) * 13.2, Math.cos(a) * 13.2, a + Math.PI);
   }
 
   // restaurants
   const restaurants = [];
   RESTAURANTS.forEach((r, i) => {
-    const a = (i / RESTAURANTS.length) * Math.PI * 2 + Math.PI;
+    const a = ringAngle(i);
     const cx = Math.sin(a) * RING_RADIUS;
     const cz = Math.cos(a) * RING_RADIUS;
     const rot = Math.atan2(-cx, -cz); // face the fountain
@@ -425,9 +509,9 @@ export function buildWorld(scene) {
     g.add(sign);
 
     // path from plaza to the door
-    const pathLen = RING_RADIUS - dims.d / 2 - 16;
+    const pathLen = RING_RADIUS - dims.d / 2 - PLAZA_RADIUS;
     const path = add(staticRoot, new THREE.PlaneGeometry(3, pathLen + 1), '#ffe7b8', 0, 0, 0, -Math.PI / 2);
-    const mid = 16 + pathLen / 2 - 0.5;
+    const mid = PLAZA_RADIUS + pathLen / 2 - 0.5;
     path.position.set(Math.sin(a) * mid, 0.015, Math.cos(a) * mid);
     path.rotation.set(-Math.PI / 2, 0, a);
 
@@ -472,26 +556,31 @@ export function buildWorld(scene) {
 
   // trees between restaurants and around the edge
   let k = 0;
-  for (let i = 0; i < 7; i++) {
-    const a = ((i + 0.5) / 7) * Math.PI * 2 + Math.PI;
-    for (const [rr, off] of [[25, 0], [31, 0.05], [36, -0.06]]) {
+  for (let i = 0; i < N; i++) {
+    const a = ringAngle(i + 0.5);
+    const sideW = (restaurants[i].dims.w + restaurants[(i + 1) % N].dims.w) / 2;
+    for (const [rr, off] of [[RING_RADIUS - 2, 0], [RING_RADIUS + 4, 0.04], [RING_RADIUS + 7.5, -0.045]]) {
+      // beside the buildings a tree needs elbow room; behind them there is always space
+      if (rr < RING_RADIUS + 6 && ((Math.PI * 2) / N) * rr - sideW < 5) continue;
       const x = Math.sin(a + off) * rr;
       const z = Math.cos(a + off) * rr;
       tree(staticRoot, x, z, k++, 0.9 + (k % 3) * 0.15);
       colliders.push({ type: 'circle', x, z, r: 0.6 });
     }
   }
-  for (let i = 0; i < 28; i++) {
-    const a = (i / 28) * Math.PI * 2;
-    const rr = 46 + (i % 3) * 3;
+  const HEDGE_RADIUS = WORLD_RADIUS + 2;
+  for (let i = 0; i < 32; i++) {
+    const a = (i / 32) * Math.PI * 2;
+    const rr = HEDGE_RADIUS + 3 + (i % 3) * 3;
     tree(staticRoot, Math.sin(a) * rr, Math.cos(a) * rr, i, 1.1 + (i % 2) * 0.3);
   }
   // hedge ring = soft world edge
-  for (let i = 0; i < 64; i++) {
-    const a = (i / 64) * Math.PI * 2;
-    add(staticRoot, new THREE.IcosahedronGeometry(1.3, 1), i % 2 ? '#56b85f' : '#62c46b', Math.sin(a) * 43, 0.8, Math.cos(a) * 43).scale.y = 0.75;
+  const hedges = Math.round((Math.PI * 2 * HEDGE_RADIUS) / 4.2);
+  for (let i = 0; i < hedges; i++) {
+    const a = (i / hedges) * Math.PI * 2;
+    add(staticRoot, new THREE.IcosahedronGeometry(1.3, 1), i % 2 ? '#56b85f' : '#62c46b', Math.sin(a) * HEDGE_RADIUS, 0.8, Math.cos(a) * HEDGE_RADIUS).scale.y = 0.75;
   }
-  flowerPatch(scene, 140);
+  flowerPatch(scene, 200);
 
   // clouds
   const clouds = new THREE.Group();
