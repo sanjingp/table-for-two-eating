@@ -71,7 +71,23 @@ export function loadReviews() {
 }
 /** Add a review to this session's `list` and save it. Returns the new list even if saving fails. */
 export function addReview(list, review) {
-  const all = trimReviews([...list, review]);
+  // Another open tab may have saved since this session loaded. Merge that history
+  // with ours, including unsaved reviews, without counting shared entries twice.
+  const merged = loadReviews();
+  const key = (r) => JSON.stringify([r.rid, r.fid, r.food, r.emoji, r.mood, r.stars, r.ts]);
+  const savedCounts = new Map();
+  for (const r of merged) {
+    const k = key(r);
+    savedCounts.set(k, (savedCounts.get(k) || 0) + 1);
+  }
+  for (const r of list) {
+    const k = key(r);
+    const n = savedCounts.get(k) || 0;
+    if (n) savedCounts.set(k, n - 1);
+    else merged.push(r);
+  }
+  merged.sort((a, b) => a.ts - b.ts);
+  const all = trimReviews([...merged, review]);
   write(KEYS.reviews, all);
   return all;
 }

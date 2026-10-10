@@ -461,6 +461,7 @@ async function main() {
       // the very first review is the only one at Jimmy John's; then 320 pizzas
       localStorage.setItem('t42.reviews', JSON.stringify([mk('jj', 'Giant Cookie'), ...Array.from({ length: 320 }, () => mk('slice', 'Cheese Pizza'))]));
       const kept = loadReviews();
+      localStorage.removeItem('t42.reviews');
       // storage that refuses to save must not lose this session's reviews
       const setItem = Storage.prototype.setItem;
       Storage.prototype.setItem = () => {
@@ -473,6 +474,45 @@ async function main() {
     });
     check(cap.kept === 300 && cap.jj === 'cookie', `the review cap (${cap.kept}) drops old repeats, never the only review that earned a sticker`);
     check(cap.session === 2, 'if the device cannot save, reviews still count for this session');
+    const sharedStorage = await B.evaluate(async () => {
+      const { loadReviews, addReview } = await import('/js/storage.js');
+      const { passportProgress } = await import('/js/passport.js');
+      const { RESTAURANT_BY_ID } = await import('/js/data.js');
+      const mk = (rid, index, ts) => {
+        const item = RESTAURANT_BY_ID[rid].menu[index];
+        return { rid, fid: item.id, food: item.name, emoji: item.emoji, mood: '😋', stars: 4, ts };
+      };
+      const setItem = Storage.prototype.setItem;
+      try {
+        const tabA = loadReviews();
+        const tabB = loadReviews();
+        const first = addReview(tabA, mk('jj', 2, 1));
+        addReview(tabB, mk('slice', 0, 3));
+        const twoTabs = loadReviews().length;
+        // A failed save in the stale tab must survive another tab's next save.
+        Storage.prototype.setItem = () => { throw new Error('storage is full'); };
+        const unsaved = addReview(first, mk('sakura', 0, 2));
+        Storage.prototype.setItem = setItem;
+        addReview(loadReviews(), mk('curry', 0, 4));
+        const recovered = addReview(unsaved, mk('slice', 1, 5));
+        const progress = passportProgress(recovered);
+        const persisted = loadReviews();
+        // Identical reviews are separate ratings; merging must retain their count.
+        localStorage.removeItem('t42.reviews');
+        const repeat = mk('jj', 2, 1);
+        const twice = addReview(addReview([], repeat), { ...repeat });
+        const repeats = addReview(twice, mk('slice', 0, 2)).length;
+        return { twoTabs, recovered: recovered.length, persisted: persisted.length,
+          order: recovered.map((r) => r.ts).join(), stickers: progress.stickers.length, repeats };
+      } finally {
+        Storage.prototype.setItem = setItem;
+        localStorage.removeItem('t42.reviews');
+      }
+    });
+    check(sharedStorage.twoTabs === 2, 'a stale tab keeps reviews saved by another tab');
+    check(sharedStorage.recovered === 5 && sharedStorage.persisted === 5 && sharedStorage.order === '1,2,3,4,5' && sharedStorage.stickers === 4,
+      'merging tabs preserves unsaved reviews, chronological history and earned stickers without duplicating shared reviews');
+    check(sharedStorage.repeats === 3, 'merging shared history preserves separate identical ratings');
     await A.locator('#btn-closet').tap();
     await A.locator('#studio-tabs .tab[data-id="hat"]').tap();
     check(await A.locator('.opt[data-value]').count() === HATS.length && await A.locator('.opt.locked').count() === HATS.length - 1, 'the closet shows every hat, locked until its badge is earned');

@@ -80,6 +80,14 @@
     7–15 draw calls when looking across the whole town (and costs about 4k triangles at the spawn point).
   - Closet tabs have a 56px minimum width.
 
+- [x] **Phase 2 follow-up review (Oct 10 2026)**
+  - Fixed: saving a rating in a tab opened earlier could overwrite reviews and passport progress saved by another tab.
+    Saves now merge the latest stored history with the session's reviews, retain reviews from failed saves, and count shared
+    entries once while preserving separate identical ratings and chronological order.
+  - Added regression checks for stale tabs, failed saves followed by storage recovery, and repeated identical ratings.
+  - Validation: `npm test` passes, including the new regressions, iPad-style touch flows, rendering budgets and server
+    message validation; no console or page errors. Focused storage checks also preserve the Menu Master badge at the cap.
+
 ## Next (ideas-v2.md)
 - Phase 3: race to a restaurant, pets, scooter, ingredient hunt
 - Phase 4: build-your-own pizza/sundae, friend as co-host
