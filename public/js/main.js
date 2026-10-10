@@ -947,8 +947,7 @@ $('#btn-review-done').addEventListener('click', () => {
 function saveRating(stars, mood) {
   const r = S.restaurant;
   const before = S.progress;
-  S.reviews = addReview({ rid: r.id, fid: S.item.id, food: S.item.name, emoji: S.item.emoji, mood, stars, ts: Date.now() });
-  S.reviews = loadReviews();
+  S.reviews = addReview(S.reviews, { rid: r.id, fid: S.item.id, food: S.item.name, emoji: S.item.emoji, mood, stars, ts: Date.now() });
   S.progress = passportProgress(S.reviews);
   // passport prizes are handed out once we are back in the plaza
   if (!before.stickers.includes(r.id) && S.progress.stickers.includes(r.id)) S.newSticker = r;

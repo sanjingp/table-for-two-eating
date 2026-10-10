@@ -69,7 +69,16 @@
   - Fewer draw calls: door mats are one instanced ring plus one highlight (was a mesh per door); each cloud is merged.
   - `npm test` extended: 20 restaurants and no overlapping footprints, playground (both pages), belt speeds / skip / tapping a
     plate / the dome, passport rules, locked hats, badge → hat → friend sees it, server checks for `hat` and `y`.
-  - Test view with two players: 136 → 152 draw calls, 68k → 81k triangles (budget 160 / 110k). Belt view: 87 draw calls.
+  - Test view with two players: 136 → 152 draw calls, 68k → 85k triangles (budget 160 / 110k). Belt view: 89 draw calls.
+
+- [x] **Phase 2 reviewer pass (Oct 10 2026)** — kid-safety-reviewer found no safety, brand or server-validation problems.
+  - Fixed: the passport is worked out from saved reviews, which are capped at 300, so a very keen reviewer could have lost a
+    sticker (and the hat it unlocked). The cap now drops the oldest repeats and always keeps the newest review of every
+    restaurant + food.
+  - Fixed: if the device cannot save (storage full or switched off), reviews, stickers and badges still count for the session.
+  - The new rooftop props, slide and pads reuse colors the town already has. Each color is one merged mesh, so this saves
+    7–15 draw calls when looking across the whole town (and costs about 4k triangles at the spawn point).
+  - Closet tabs have a 56px minimum width.
 
 ## Next (ideas-v2.md)
 - Phase 3: race to a restaurant, pets, scooter, ingredient hunt
@@ -86,7 +95,13 @@
 - Hats are only checked on the player's own device (badges come from reviews in localStorage); the server just checks the
   enum. A tinkerer could wear a crown early, which is harmless.
 - Software-rendered test runs are several times slower than an iPad, so the playground checks use long timeouts.
-- Draw calls in the two-player test view (152) are close to the 160 budget; new static colors add one call each.
+- Draw calls in the two-player test view (152) are close to the 160 budget, and the test only measures that view. Standing
+  at the town edge looking across all 20 buildings draws 158–172 with one player. Each static color is one merged mesh;
+  if this ever needs to come down a lot, merge the whole town into one vertex-colored mesh.
+- 🟢 🟡 in the online chip (Unicode 12) and 🤌 on the Chef's kiss emote (Unicode 13) are newer than the Unicode 11 rule
+  for menus; they predate Phase 2 and may show as boxes on iPads stuck on old iOS.
+- Scrapbook lines show the food name, emoji and mood exactly as saved on this device (length-capped, inserted as text).
+  They never leave the device.
 
 ## Hosting attempt (Grok Bot, Oct 9 2026)
 - Tried no-account Cloudflare quick tunnel: box network blocks Cloudflare edge (QUIC and TCP 7844). No ssh client for localhost.run.

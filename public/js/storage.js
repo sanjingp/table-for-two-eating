@@ -36,10 +36,28 @@ function foodId(r) {
   return item ? item.id : '';
 }
 
+/**
+ * Keep at most MAX_REVIEWS by dropping the oldest repeats. The newest review of every
+ * restaurant + food always stays, so the sticker passport can never lose what was earned.
+ */
+function trimReviews(list) {
+  let extra = list.length - MAX_REVIEWS;
+  if (extra <= 0) return list;
+  const seen = new Set();
+  const keep = new Set();
+  for (let i = list.length - 1; i >= 0; i--) {
+    const key = `${list[i].rid}/${list[i].fid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    keep.add(list[i]);
+  }
+  return list.filter((r) => keep.has(r) || extra-- <= 0);
+}
+
 export function loadReviews() {
   const raw = read(KEYS.reviews);
   if (!Array.isArray(raw)) return [];
-  return raw
+  return trimReviews(raw
     .filter((r) => r && RESTAURANT_IDS.includes(r.rid) && Number.isInteger(r.stars) && r.stars >= 1 && r.stars <= 5)
     .map((r) => ({
       rid: r.rid,
@@ -49,13 +67,12 @@ export function loadReviews() {
       mood: String(r.mood || '').slice(0, 8),
       stars: r.stars,
       ts: Number(r.ts) || Date.now(),
-    }))
-    .slice(-MAX_REVIEWS);
+    })));
 }
-export function addReview(review) {
-  const all = loadReviews();
-  all.push(review);
-  write(KEYS.reviews, all.slice(-MAX_REVIEWS));
+/** Add a review to this session's `list` and save it. Returns the new list even if saving fails. */
+export function addReview(list, review) {
+  const all = trimReviews([...list, review]);
+  write(KEYS.reviews, all);
   return all;
 }
 

@@ -454,6 +454,25 @@ async function main() {
     check(passportProgress([]).hats.join() === 'none' && menuMaster.hats.join() === 'none,shades' && townTour.hats.join() === 'none,chef,crown',
       'badge rules: 3 stickers → chef hat, a whole menu → sunglasses, 10 stickers → crown');
     check(BADGES.every((b) => HATS.includes(b.hat) && HAT_INFO[b.hat]) && new Set(BADGES.map((b) => b.hat)).size === HATS.length - 1, 'every hat is the prize of exactly one badge');
+    // page B never reviews anything, so its storage is free to experiment on
+    const cap = await B.evaluate(async () => {
+      const { loadReviews, addReview } = await import('/js/storage.js');
+      const mk = (rid, food) => ({ rid, food, emoji: '🍕', mood: '😋', stars: 4, ts: 1 });
+      // the very first review is the only one at Jimmy John's; then 320 pizzas
+      localStorage.setItem('t42.reviews', JSON.stringify([mk('jj', 'Giant Cookie'), ...Array.from({ length: 320 }, () => mk('slice', 'Cheese Pizza'))]));
+      const kept = loadReviews();
+      // storage that refuses to save must not lose this session's reviews
+      const setItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = () => {
+        throw new Error('storage is full');
+      };
+      const session = addReview(addReview([], mk('jj', 'Giant Cookie')), mk('slice', 'Cheese Pizza'));
+      Storage.prototype.setItem = setItem;
+      localStorage.removeItem('t42.reviews');
+      return { kept: kept.length, jj: kept.filter((r) => r.rid === 'jj').map((r) => r.fid).join(), session: session.length };
+    });
+    check(cap.kept === 300 && cap.jj === 'cookie', `the review cap (${cap.kept}) drops old repeats, never the only review that earned a sticker`);
+    check(cap.session === 2, 'if the device cannot save, reviews still count for this session');
     await A.locator('#btn-closet').tap();
     await A.locator('#studio-tabs .tab[data-id="hat"]').tap();
     check(await A.locator('.opt[data-value]').count() === HATS.length && await A.locator('.opt.locked').count() === HATS.length - 1, 'the closet shows every hat, locked until its badge is earned');
