@@ -1,6 +1,6 @@
 // Shared between the browser client and the Node server (server imports this file).
 // Single source of truth for every enum / preset that crosses the network.
-import { RESTAURANTS } from './data.js';
+import { RESTAURANTS, BUILDS, MYSTERY_TWISTS } from './data.js';
 
 export const HAIR_STYLES = ['short', 'long', 'ponytail', 'pigtails', 'curly', 'afropuff', 'bun'];
 export const TOPS = ['tshirt', 'hoodie', 'dress'];
@@ -85,6 +85,66 @@ export function pickRaceTarget(positions, rand = Math.random) {
   if (!fair.length) fair = [far.reduce((a, b) => (b.nearest > a.nearest ? b : a))]; // crowded town: the farthest door
   return fair[Math.min(fair.length - 1, Math.floor(rand() * fair.length))].rid;
 }
+
+// ---------------------------------------------------------------- Phase 4: build your own, table for two
+/** Ids the server hands out (players, table sessions). */
+export const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,16}$/.test(v);
+const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const own = (obj, key) => typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
+
+/**
+ * A build-your-own creation: { k: kind, b: base id, t: [topping ids] }, every part picked from BUILDS.
+ * Strict: returns a clean copy (toppings in menu order) or null if anything is not a preset.
+ */
+export function sanitizeBuild(input) {
+  if (!isPlainObject(input) || !own(BUILDS, input.k)) return null;
+  const def = BUILDS[input.k];
+  if (!def.bases.some((b) => b.id === input.b)) return null;
+  if (!Array.isArray(input.t) || input.t.length > def.max) return null;
+  const ids = def.toppings.map((t) => t.id);
+  if (!input.t.every((t) => ids.includes(t)) || new Set(input.t).size !== input.t.length) return null;
+  return { k: input.k, b: input.b, t: ids.filter((id) => input.t.includes(id)) };
+}
+
+/**
+ * What a table for two is eating, as its host sends it: { f: menu id } for a food from restaurant
+ * `rid`'s menu, with { my: true, tw: twist id } for a Mystery Plate, or { b: build } for a creation
+ * from that restaurant's own kitchen. Returns a clean copy or null.
+ */
+export function sanitizeTableFood(rid, input) {
+  const r = RESTAURANTS.find((x) => x.id === rid);
+  if (!r || !isPlainObject(input)) return null;
+  if (input.b !== undefined) {
+    const b = sanitizeBuild(input.b);
+    return b && b.k === r.build ? { b } : null;
+  }
+  if (!r.menu.some((m) => m.id === input.f)) return null;
+  const out = { f: input.f };
+  if (input.my !== undefined) {
+    if (input.my !== true) return null;
+    out.my = true;
+  }
+  if (input.tw !== undefined) {
+    if (!out.my || !MYSTERY_TWISTS.some((t) => t.id === input.tw)) return null; // only a Mystery Plate has a twist
+    out.tw = input.tw;
+  }
+  return out;
+}
+
+// Table for two: a friend from the same town takes the co-host seat. Players only ever send ids and
+// presets; the server makes the session id, decides who sits where and ends the table when one leaves.
+export const TABLE = Object.freeze({
+  inviteTtl: 20, // seconds an invite waits for an answer
+  seatTtl: 10, // seconds a friend who said yes has to walk in and sit down
+  inviteEvery: 4, // seconds between invites from one player (after a burst of two)
+  cardEvery: 30, // seconds between invite cards any one player can be shown (after a burst of three), whoever asks
+  rest: 30, // seconds before the same player can ask a friend again after a no, an invite taken back, or no answer
+  restMax: 240, // every further "no" from that friend doubles their rest, up to this
+  doorReach: 6, // the host must be filming this close to the restaurant's door
+});
+export const TABLE_ANSWERS = ['yes', 'no', 'busy']; // busy: the friend's game answered for them (in the closet, filming…)
+// Why an invite did not work out: they said no, are busy, never answered, left town, or it is too soon to ask.
+export const TABLE_WHY = ['no', 'busy', 'timeout', 'gone', 'wait'];
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 export const isHex = (v) => typeof v === 'string' && HEX_RE.test(v);

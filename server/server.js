@@ -11,8 +11,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  ANIMS, EMOTES, LINES, WORLD_LIMIT, HEIGHT_LIMIT, EMOTE_LIMIT, RACE, sanitizeAppearance, isValidRoom,
-  raceDoorSpot, pickRaceTarget,
+  ANIMS, EMOTES, LINES, WORLD_LIMIT, HEIGHT_LIMIT, EMOTE_LIMIT, RACE, RESTAURANT_IDS, TABLE, TABLE_ANSWERS, sanitizeAppearance, isValidRoom,
+  raceDoorSpot, pickRaceTarget, isId, sanitizeBuild, sanitizeTableFood,
 } from '../public/js/schema.js';
 
 const ROOT = path.resolve(fileURLToPath(new URL('../public', import.meta.url)));
@@ -148,6 +148,7 @@ class TokenBucket {
 const clampNum = (v, lim) => Math.max(-lim, Math.min(lim, v));
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const round2 = (v) => Math.round(v * 100) / 100;
+const isKey = (v) => typeof v === 'string' && /^[a-z0-9]{1,24}$/.test(v); // the shape of a food or twist id
 
 /** Returns a rebuilt, safe message or null. Unknown fields are dropped. */
 export function validateClientMessage(msg) {
@@ -178,6 +179,25 @@ export function validateClientMessage(msg) {
       return Number.isInteger(msg.l) && msg.l >= 0 && msg.l < LINES.length ? { t: 'say', l: msg.l } : null;
     case 'race':
       return { t: 'race' }; // "start a race": nothing else is read from the client
+    // ---- table for two (friend as co-host): ids and presets only, checked again against the table itself
+    case 'coinv': // "be my co-host": which friend, at which restaurant
+      return isId(msg.to) && RESTAURANT_IDS.includes(msg.r) ? { t: 'coinv', to: msg.to, r: msg.r } : null;
+    case 'coans': // the friend's answer to invite `s`
+      return isId(msg.s) && TABLE_ANSWERS.includes(msg.a) ? { t: 'coans', s: msg.s, a: msg.a } : null;
+    case 'cofood': { // the host's food choice: a menu id (maybe a Mystery Plate with a twist) or a build-your-own
+      if (!isId(msg.s)) return null;
+      if (msg.b !== undefined) {
+        const b = sanitizeBuild(msg.b);
+        return b ? { t: 'cofood', s: msg.s, b } : null;
+      }
+      if (!isKey(msg.f) || (msg.tw !== undefined && !isKey(msg.tw)) || (msg.my !== undefined && msg.my !== true)) return null;
+      return { t: 'cofood', s: msg.s, f: msg.f, ...(msg.my && { my: true }), ...(msg.tw !== undefined && { tw: msg.tw }) };
+    }
+    case 'cobite': // "I took a bite"
+    case 'coleave': // "I left the table" (or took my invite back)
+      return isId(msg.s) ? { t: msg.t, s: msg.s } : null;
+    case 'codone': // "I rated it": the number of stars, 1 to 5
+      return isId(msg.s) && Number.isInteger(msg.n) && msg.n >= 1 && msg.n <= 5 ? { t: 'codone', s: msg.s, n: msg.n } : null;
     default:
       return null;
   }
@@ -239,6 +259,106 @@ function sendJson(ws, obj) {
   if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < LIMITS.maxBufferedBytes) ws.send(JSON.stringify(obj));
 }
 
+// ---------------------------------------------------------------- tables for two (a friend as co-host)
+// A player filming inside a restaurant (the host) may ask one friend in the same room to take the
+// co-host seat. The server runs the session: it makes the id, seats the two of them (host first),
+// checks who may do what, passes the food choice, bites and star ratings between those two only,
+// and ends the table as soon as either of them leaves the restaurant or the game.
+// Each player is at one table at most: `client.table` (hosting or co-hosting) or `client.asked` (invited).
+const tables = new Map(); // session id -> { id, r, host, guest, asked, food, rated, seated, timer }
+
+/** The other player at a table that has two (null while the host is still waiting for an answer). */
+const tablePartner = (table, client) => (table.guest ? (table.host === client ? table.guest : table.host) : null);
+/** The table `client` is sitting at, if `sid` is its id (a message about an old table is ignored). */
+const tableOf = (client, sid) => (client.table && client.table.id === sid ? client.table : null);
+
+function inviteToTable(client, msg) {
+  const set = rooms.get(client.room);
+  const target = [...set].find((c) => c.id === msg.to && c.app && c !== client);
+  // every ask gets an answer, so the asking game never waits for nothing
+  const refuse = (why) => sendJson(client.ws, { t: 'cono', id: msg.to, why });
+  if (!target) return refuse('gone');
+  if (client.table || client.asked) return refuse('wait'); // one table (or invite) at a time
+  // the host has to be where they say: filming, at that restaurant's door
+  if (!client.st || client.st.an !== 'review' || distance(client.st, raceDoorSpot(msg.r)) > TABLE.doorReach) return refuse('wait');
+  // no pestering: after a "no" (or an invite taken back or left unanswered) that friend gets a rest from this player
+  const rebuff = client.rebuffs.get(target);
+  if (rebuff && Date.now() < rebuff.until) return refuse(rebuff.no ? 'no' : 'wait');
+  if (target.table || target.asked || (target.st && target.st.an === 'review')) return refuse('busy');
+  if (!client.inviteBucket.take()) return refuse('wait'); // asking too fast
+  // ...and nobody is shown card after card, whoever is asking and however often they reconnect
+  if (!target.cardBucket.take()) return refuse('busy');
+  const table = { id: newId(), r: msg.r, host: client, guest: null, asked: target, food: null, rated: new Set(), seated: false };
+  table.timer = setTimeout(() => endTable(table, null, 'timeout'), TABLE.inviteTtl * 1000);
+  table.timer.unref();
+  tables.set(table.id, table);
+  client.table = table;
+  target.asked = table;
+  sendJson(target.ws, { t: 'coinv', s: table.id, id: client.id, r: table.r });
+  sendJson(client.ws, { t: 'coinv', s: table.id, to: target.id });
+}
+
+/**
+ * `friend` gets a rest from `host`'s invites. said: the friend tapped "No thanks", and each further
+ * no doubles the rest (up to TABLE.restMax). Rests end with the host's connection, which is why
+ * every player also has a limit on the cards they can be shown at all (cardBucket).
+ */
+function rebuff(host, friend, said) {
+  for (const c of host.rebuffs.keys()) if (c.ws.readyState !== WebSocket.OPEN) host.rebuffs.delete(c); // friends who have gone
+  const no = (host.rebuffs.get(friend)?.no || 0) + (said ? 1 : 0);
+  const rest = Math.min(TABLE.restMax, TABLE.rest * 2 ** Math.max(0, no - 1));
+  host.rebuffs.set(friend, { no, until: Date.now() + rest * 1000 });
+}
+
+function answerInvite(client, msg) {
+  const table = client.asked;
+  if (!table || table.id !== msg.s) return;
+  if (msg.a === 'no') rebuff(table.host, client, true);
+  // "busy" is the friend's game answering for them (in the closet, filming…): no card was shown, so it is not counted
+  if (msg.a === 'busy') client.cardBucket.tokens = Math.min(client.cardBucket.capacity, client.cardBucket.tokens + 1);
+  // (a "yes" from inside another restaurant cannot be kept)
+  if (msg.a !== 'yes' || (client.st && client.st.an === 'review')) return endTable(table, client, msg.a === 'no' ? 'no' : 'busy');
+  clearTimeout(table.timer);
+  table.asked = client.asked = null;
+  table.guest = client;
+  client.table = table;
+  // the friend's game now walks them in (it reports `review`): a yes that never arrives frees the chair again
+  table.timer = setTimeout(() => !table.seated && endTable(table, null, 'gone'), TABLE.seatTtl * 1000);
+  table.timer.unref();
+  // seat assignment: the host keeps the first chair, the friend takes the co-host's
+  for (const c of [table.host, client]) sendJson(c.ws, { t: 'cojoin', s: table.id, r: table.r, seats: [table.host.id, client.id] });
+}
+
+/**
+ * The table is over. leaver: who left it, said no or dropped out (null when the server called time:
+ * an invite nobody answered, or a friend who never sat down. Then both are told).
+ * why: what the host is told when the invite never became a table (see TABLE_WHY).
+ */
+function endTable(table, leaver, why) {
+  if (!tables.delete(table.id)) return;
+  clearTimeout(table.timer);
+  const { host, guest, asked } = table;
+  host.table = null;
+  if (guest) guest.table = null;
+  if (asked) {
+    asked.asked = null;
+    // a card that was taken back or never answered counts too: the friend is left alone for a while
+    if (leaver !== asked) rebuff(host, asked, false);
+    if (leaver !== host) sendJson(host.ws, { t: 'cono', s: table.id, id: asked.id, why });
+    if (leaver !== asked) sendJson(asked.ws, { t: 'coend', s: table.id, id: host.id }); // the invite card goes away
+    return;
+  }
+  for (const c of [host, guest]) if (c !== leaver) sendJson(c.ws, { t: 'coend', s: table.id, id: (leaver || host).id });
+}
+
+/** A player's state changed: walking out of the restaurant ends their table (a co-host first has to walk in). */
+function checkTable(client) {
+  const table = client.table;
+  if (!table) return;
+  if (client.st.an === 'review') table.seated ||= table.guest === client;
+  else if (table.host === client || table.seated) endTable(table, client, 'gone');
+}
+
 function broadcast(room, obj, exceptClient) {
   const set = rooms.get(room);
   if (!set) return;
@@ -275,6 +395,12 @@ function onConnection(ws, room, ip) {
     emoteBucket: new TokenBucket(EMOTE_LIMIT.burst, EMOTE_LIMIT.perSecond), // emotes / preset lines
     appBucket: new TokenBucket(4, 0.5), // appearance updates
     raceBucket: new TokenBucket(1, 1 / RACE.cooldown), // starting a race
+    inviteBucket: new TokenBucket(2, 1 / TABLE.inviteEvery), // asking a friend to co-host
+    cardBucket: new TokenBucket(3, 1 / TABLE.cardEvery), // being asked: invite cards this player can be shown
+    tableBucket: new TokenBucket(6, 2), // bites at a table for two
+    table: null, // the table for two this player hosts or co-hosts at
+    asked: null, // a table this player has been invited to and not answered yet
+    rebuffs: new Map(), // friends this player has to leave alone for now -> { no: times they said no, until }
     strikes: new TokenBucket(30, 1), // misbehaviour budget
   };
   connectionCount++;
@@ -334,6 +460,7 @@ function onConnection(ws, room, ip) {
         client.st = { x: msg.x, z: msg.z, ry: msg.ry, an: msg.an, y: msg.y };
         broadcast(room, { t: 'st', id: client.id, ...client.st }, client);
         checkFinish(client);
+        checkTable(client);
         break;
       case 'emo':
         if (client.emoteBucket.take()) broadcast(room, { t: 'emo', id: client.id, e: msg.e }, client);
@@ -349,6 +476,42 @@ function onConnection(ws, room, ip) {
       case 'race':
         if (!races.has(room) && Date.now() >= (raceRests.get(room) || 0) && client.raceBucket.take()) startRace(room, client);
         break;
+      case 'coinv':
+        inviteToTable(client, msg);
+        break;
+      case 'coans':
+        answerInvite(client, msg);
+        break;
+      case 'cofood': {
+        // only the host chooses, once, and only once the friend has sat down
+        const table = tableOf(client, msg.s);
+        if (!table || table.host !== client || !table.guest || table.food) break;
+        const food = sanitizeTableFood(table.r, msg); // it has to be on this restaurant's menu
+        if (!food) return strike();
+        table.food = food;
+        sendJson(table.guest.ws, { t: 'cofood', s: table.id, ...food });
+        break;
+      }
+      case 'cobite': {
+        const table = tableOf(client, msg.s);
+        const partner = table && table.food ? tablePartner(table, client) : null;
+        if (partner && client.tableBucket.take()) sendJson(partner.ws, { t: 'cobite', s: table.id, id: client.id });
+        break;
+      }
+      case 'codone': {
+        // each of the two rates once; the stars are saved on their own device, the friend is only told
+        const table = tableOf(client, msg.s);
+        const partner = table && table.food && !table.rated.has(client) ? tablePartner(table, client) : null;
+        if (!partner) break;
+        table.rated.add(client);
+        sendJson(partner.ws, { t: 'codone', s: table.id, id: client.id, n: msg.n });
+        break;
+      }
+      case 'coleave': {
+        const table = tableOf(client, msg.s);
+        if (table) endTable(table, client, 'gone');
+        break;
+      }
     }
   });
 
@@ -359,6 +522,8 @@ function onConnection(ws, room, ip) {
     if (n <= 0) ipConnections.delete(ip);
     else ipConnections.set(ip, n);
     if (set.delete(client) && client.app) broadcast(room, { t: 'leave', id: client.id });
+    if (client.table) endTable(client.table, client, 'gone'); // the friend at the table carries on alone
+    if (client.asked) endTable(client.asked, client, 'gone');
     races.get(room)?.from.delete(client);
     races.get(room)?.joined.delete(client);
     if (set.size === 0 && rooms.get(room) === set) {

@@ -6,7 +6,8 @@
 // Buildings that share a shell (`style`) sit far apart; `prop` picks the giant rooftop food.
 // Menu and sticker emoji stay old (Unicode 11 or earlier) for older iPads.
 // `react` tags a food with a bite reaction (see FOOD_REACTIONS); `sticker` is the passport
-// sticker earned by the first review there; `belt` gives the restaurant a sushi conveyor belt.
+// sticker earned by the first review there; `belt` gives the restaurant a sushi conveyor belt;
+// `build` gives it a build-your-own kitchen (see BUILDS).
 export const RESTAURANTS = [
   {
     id: 'sakura', name: 'Sakura Sushi', style: 'pagoda', prop: 'maki', sticker: '🍣', belt: true,
@@ -42,7 +43,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'slice', name: 'Slice Squad', style: 'cottage', prop: 'pizza', sticker: '🍕',
+    id: 'slice', name: 'Slice Squad', style: 'cottage', prop: 'pizza', sticker: '🍕', build: 'pizza',
     wall: '#fff1d6', roof: '#2f9e44', trim: '#ffffff', inside: '#fff4e0',
     sign: { bg: '#fffbe6', fg: '#e8590c', border: '#2f9e44' }, accent: '#e8590c',
     menu: [
@@ -190,7 +191,7 @@ export const RESTAURANTS = [
     ],
   },
   {
-    id: 'sundae', name: 'Sundae Funday', style: 'diner', prop: 'sundae', sticker: '🍨',
+    id: 'sundae', name: 'Sundae Funday', style: 'diner', prop: 'sundae', sticker: '🍨', build: 'sundae',
     wall: '#96f2d7', roof: '#ffa8c5', trim: '#ffffff', inside: '#f0fff7',
     sign: { bg: '#ffffff', fg: '#e64980', border: '#63e6be' }, accent: '#e64980',
     menu: [
@@ -347,10 +348,11 @@ export const FOOD_TAGS = {
   crunchy: ['chips', 'taco', 'nachos', 'nuggets', 'wafflefries', 'fries', 'apples', 'cucumberroll', 'samosa', 'falafel',
     'popcornshrimp', 'fishchips', 'corndog', 'twists', 'guac', 'garlicbread', 'eggwaffle', 'gyoza'],
   sweet: ['cookie', 'icecream', 'mochi', 'sprinkledonut', 'donutholes', 'cinnamonroll', 'cocoa', 'sundae', 'bananasplit',
-    'strawberrycone', 'shavedice', 'pancakes', 'waffles', 'twists', 'shake', 'lassi', 'cornbread', 'smoothie'],
+    'strawberrycone', 'shavedice', 'pancakes', 'waffles', 'twists', 'shake', 'lassi', 'cornbread', 'smoothie', 'mysundae'],
   drink: ['bobatea', 'smoothie', 'cocoa', 'oj', 'lassi', 'shake', 'juice'],
-  cheesy: ['burger', 'cheesepizza', 'pepperonipizza', 'quesadilla', 'nachos', 'mac', 'bbqmac', 'ravioli', 'hamsub'],
+  cheesy: ['burger', 'cheesepizza', 'pepperonipizza', 'quesadilla', 'nachos', 'mac', 'bbqmac', 'ravioli', 'hamsub', 'mypizza'],
   noodles: ['ramen', 'noodles', 'spaghetti'],
+  build: ['mypizza', 'mysundae'], // made in a build-your-own kitchen (BUILDS below)
 };
 
 // Reviewer missions: picture cards in the scrapbook, three at a time (rules in missions.js).
@@ -370,6 +372,7 @@ export const MISSIONS = [
   { id: 'cheesy', pics: '🧀🧀', title: 'Find 2 cheesy foods', kind: 'tag', tag: 'cheesy', each: 'fid', need: 2 },
   { id: 'noodles', pics: '🍜', title: 'Slurp some noodles', kind: 'tag', tag: 'noodles', need: 1 },
   { id: 'sour', pics: '🍋😖', title: 'Pucker up for something sour', kind: 'react', react: 'sour', need: 1 },
+  { id: 'chef', pics: '🍕🍨', title: 'Build your own pizza or sundae', kind: 'tag', tag: 'build', need: 1 },
 ];
 export const MISSION_SLOTS = 3;
 
@@ -428,3 +431,56 @@ export const COMIC_WORDS = {
 
 // Plaza dance party: the moves are ordinary emotes, so friends see them (rules in dance.js).
 export const DANCE_MOVES = ['dance', 'jump', 'heart'];
+
+// ---------------------------------------------------------------- Phase 4: build your own, friend as co-host
+// A restaurant with `build: kind` has a kitchen: pick one base and up to `max` toppings from these
+// preset chips and the 3D food shows them (models in food.js, names in build.js, checks in schema.js).
+// `fid` is the food id a creation is saved under; `word` is what a choice adds to the food's name
+// ("My Pepperoni & Olive Pizza"); `react` gives a bite reaction. Emoji stay old, like the menus.
+export const BUILDS = {
+  pizza: {
+    fid: 'mypizza', emoji: '🍕', dish: 'Pizza', title: 'Build Your Own Pizza', blurb: 'You pick the toppings!', max: 4,
+    baseLabel: 'Sauce',
+    bases: [
+      { id: 'tomato', label: 'Tomato', word: '', emoji: '🍅' },
+      { id: 'pesto', label: 'Pesto', word: 'Pesto', emoji: '🌿' },
+      { id: 'white', label: 'Creamy', word: 'Creamy', emoji: '🥛' },
+    ],
+    toppings: [
+      { id: 'pepperoni', label: 'Pepperoni', word: 'Pepperoni', emoji: '🔴' },
+      { id: 'mushroom', label: 'Mushrooms', word: 'Mushroom', emoji: '🍄' },
+      { id: 'olive', label: 'Olives', word: 'Olive', emoji: '⚫' },
+      { id: 'pineapple', label: 'Pineapple', word: 'Pineapple', emoji: '🍍' },
+      { id: 'corn', label: 'Corn', word: 'Corn', emoji: '🌽' },
+      { id: 'chili', label: 'Hot Peppers', word: 'Chili', emoji: '🌶️', react: 'spicy' },
+      { id: 'basil', label: 'Basil', word: 'Basil', emoji: '🍃' },
+      { id: 'cheese', label: 'Extra Cheese', word: 'Cheesy', emoji: '🧀' },
+    ],
+  },
+  sundae: {
+    fid: 'mysundae', emoji: '🍨', dish: 'Sundae', title: 'Build Your Own Sundae', blurb: 'Scoops and toppings!', max: 4, react: 'cold',
+    baseLabel: 'Ice cream',
+    bases: [
+      { id: 'vanilla', label: 'Vanilla', word: 'Vanilla', emoji: '🍦' },
+      { id: 'chocolate', label: 'Chocolate', word: 'Chocolate', emoji: '🍫' },
+      { id: 'strawberry', label: 'Strawberry', word: 'Strawberry', emoji: '🍓' },
+      { id: 'mint', label: 'Mint Chip', word: 'Mint', emoji: '🌱' },
+    ],
+    toppings: [
+      { id: 'fudge', label: 'Hot Fudge', word: 'Fudge', emoji: '🍫' },
+      { id: 'caramel', label: 'Caramel', word: 'Caramel', emoji: '🍯' },
+      { id: 'sprinkles', label: 'Sprinkles', word: 'Sprinkle', emoji: '🌈' },
+      { id: 'cream', label: 'Whipped Cream', word: 'Cream', emoji: '☁️' },
+      { id: 'cherry', label: 'Cherry', word: 'Cherry', emoji: '🍒' },
+      { id: 'banana', label: 'Banana', word: 'Banana', emoji: '🍌' },
+      { id: 'cookie', label: 'Cookies', word: 'Cookie', emoji: '🍪' },
+      { id: 'gummy', label: 'Gummy Bears', word: 'Gummy', emoji: '🐻' },
+      { id: 'berry', label: 'Berries', word: 'Berry', emoji: '🍓' },
+    ],
+  },
+};
+// What three or four toppings are called (one or two are named: "My Olive & Corn Pizza").
+export const BUILD_LOADED = { 3: 'Triple Topping', 4: 'Mega Topping' };
+
+// Friend as co-host: what a friend can do while the host is still choosing the food (emotes only).
+export const WAIT_EMOTES = ['wave', 'yum', 'wow', 'thumbs', 'heart'];

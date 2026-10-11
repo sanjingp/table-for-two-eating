@@ -269,6 +269,60 @@ body { position: fixed; inset: 0; }
 .menu-item .mi-name { font-weight: 900; font-size: 20px; }
 .menu-item .mi-blurb { font-size: 14px; font-weight: 700; opacity: .7; }
 
+.menu-item.build { background: linear-gradient(180deg, #fff7d6, #ffe7a3); border-color: #ffc94d; box-shadow: 0 6px 0 #ffc94d; }
+.menu-item.build:active { box-shadow: 0 2px 0 #ffc94d; }
+.menu-item.build .mi-emoji::after { content: '✨'; font-size: 30px; vertical-align: top; }
+
+/* build your own: the food is built on the 3D plate above the chips */
+#screen-build, #screen-wait { pointer-events: none; }
+.build-controls {
+  pointer-events: auto; position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 26px calc(16px + var(--sar)) calc(12px + var(--sab)) calc(16px + var(--sal));
+  background: linear-gradient(180deg, rgba(74, 29, 122, 0), rgba(74, 29, 122, .55) 22%);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.build-row { display: flex; gap: 10px; align-items: center; justify-content: center; }
+.build-row.actions { gap: 12px; flex-wrap: wrap; margin-top: 2px; }
+.build-label {
+  flex: 0 0 auto; min-width: 118px; text-align: center; background: rgba(255, 255, 255, .95); border: 3px solid #ffd6ec; border-radius: 16px;
+  padding: 6px 10px; font-weight: 900; font-size: 16px; line-height: 1.2;
+}
+.build-label.full { background: #ffe07a; border-color: #ffb703; }
+.build-chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.top-chip {
+  font-family: var(--font); font-weight: 800; font-size: 13px; line-height: 1.1; color: var(--ink); width: 90px; min-height: 66px; padding: 4px;
+  border-radius: 20px; border: 4px solid #fff; background: rgba(255, 255, 255, .95); display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 2px; touch-action: manipulation; cursor: pointer; box-shadow: 0 4px 0 rgba(0, 0, 0, .15); position: relative;
+}
+.top-chip .tc-emoji { font-size: 26px; line-height: 1; }
+.top-chip.on { background: linear-gradient(180deg, #ffe07a, #ffb703); border-color: #fff; color: #6b3b00; }
+.top-chip.on::after {
+  content: '✓'; position: absolute; top: -8px; right: -6px; width: 24px; height: 24px; border-radius: 50%; background: var(--green); color: #fff;
+  font-size: 15px; font-weight: 900; display: flex; align-items: center; justify-content: center; border: 2px solid #fff;
+}
+.top-chip:active { transform: translateY(3px) scale(.95); }
+.top-chip.nope { animation: nope .3s ease-in-out; }
+@keyframes nope { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+/* friend as co-host */
+.cohost-btn.with { background: #e7fbe9; color: var(--ink); border-color: #8ce99a; text-shadow: none; }
+.cohost-card { width: min(520px, 96vw); }
+.cohost-friends { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 16px; }
+.friend-btn { justify-content: flex-start; gap: 12px; font-size: 22px; text-align: left; }
+.friend-btn .fb-dot { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(74, 29, 122, .2); }
+.cohost-waiting { display: flex; align-items: center; justify-content: center; gap: 12px; font-weight: 900; font-size: 22px; margin: 14px 0 20px; }
+.cohost-clock { font-size: 40px; display: inline-block; animation: bob 1.2s ease-in-out infinite; }
+.co-invite {
+  pointer-events: auto; position: absolute; left: 0; right: 0; margin: 0 auto; top: calc(222px + var(--sat)); z-index: 6; width: min(540px, 92vw);
+  background: var(--paper); border: 6px solid #fff; border-radius: 30px; padding: 14px 18px 16px; text-align: center;
+  box-shadow: 0 14px 34px rgba(74, 29, 122, .35); animation: popIn .22s ease-out;
+}
+.co-invite-text { font-weight: 900; font-size: 22px; margin-bottom: 12px; }
+.co-invite-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.vf-cohost {
+  position: absolute; left: 30px; top: 60px; font-weight: 900; font-size: 19px; color: #fff; text-shadow: 0 2px 4px rgba(0, 0, 0, .5);
+}
+
 /* sushi conveyor belt: the plates are tapped on the 3D canvas underneath */
 .belt { pointer-events: none; }
 .belt-title {
@@ -361,14 +415,14 @@ body { position: fixed; inset: 0; }
 .review-row::-webkit-scrollbar { display: none; }
 .review-row.lines { justify-content: flex-start; }
 .review-row.actions { justify-content: space-between; }
-.rv-emote {
+.rv-emote, .wait-emote {
   flex: 0 0 auto; font-family: var(--font); min-width: 88px; min-height: 76px; border-radius: 22px; border: 4px solid #fff;
   background: rgba(255, 255, 255, .95); font-size: 34px; display: flex; flex-direction: column; align-items: center; justify-content: center;
   color: var(--ink); touch-action: manipulation; cursor: pointer; box-shadow: 0 4px 0 rgba(0, 0, 0, .15);
 }
-.rv-emote small { font-size: 12px; font-weight: 900; }
+.rv-emote small, .wait-emote small { font-size: 12px; font-weight: 900; }
 .rv-emote.bite { background: linear-gradient(180deg, #ffe07a, #ffb703); }
-.rv-emote:active { transform: translateY(3px) scale(.95); }
+.rv-emote:active, .wait-emote:active { transform: translateY(3px) scale(.95); }
 .rv-line {
   flex: 0 0 auto; font-family: var(--font); font-weight: 800; font-size: 17px; min-height: 56px; padding: 6px 18px; border-radius: 22px 22px 22px 6px;
   border: 3px solid #fff; background: #f6f0ff; color: var(--ink); white-space: nowrap; touch-action: manipulation; cursor: pointer;
@@ -405,12 +459,15 @@ body { position: fixed; inset: 0; }
 .book-page header { padding: 10px 14px; color: #fff; font-weight: 900; font-size: 20px; display: flex; justify-content: space-between; align-items: center; text-shadow: 0 2px 0 rgba(0, 0, 0, .2); }
 .book-page .avg { font-size: 18px; letter-spacing: 1px; }
 .book-page ul { list-style: none; margin: 0; padding: 8px 12px 12px; }
-.book-page li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 2px dashed #f0e6ff; font-weight: 800; font-size: 16px; }
+.book-page li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 2px dashed #f0e6ff; font-weight: 800; font-size: 16px; }
 .book-page li:last-child { border-bottom: 0; }
 .book-page li .fe { font-size: 28px; }
 .book-page li .fn { flex: 1; }
 .book-page li .st { color: #ffb703; letter-spacing: -1px; }
 .book-page li .deco { font-size: 13px; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: #f6f0ff; white-space: nowrap; }
+.book-page li .extras { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 36px; margin-top: -4px; }
+.book-page li .deco.made { background: #fff4d6; letter-spacing: 1px; }
+.book-page li .deco.with { background: #e7fbe9; }
 .book-page .empty { padding: 18px; text-align: center; font-weight: 800; opacity: .6; }
 
 .book-tabs { margin: 0 0 12px; flex: none; }
@@ -544,6 +601,10 @@ body { position: fixed; inset: 0; }
   .vf-title { display: none; }
 }
 @media (max-height: 560px) {
+  .top-chip { min-height: 56px; width: 80px; }
+  .top-chip .tc-emoji { font-size: 20px; }
+  .co-invite { padding: 8px 14px 10px; }
+  .co-invite-text { font-size: 18px; margin-bottom: 6px; }
   .dance-btn { width: 96px; height: 96px; font-size: 44px; }
   .dance-prompt { width: 110px; height: 110px; font-size: 60px; }
   .race-count { font-size: 120px; }

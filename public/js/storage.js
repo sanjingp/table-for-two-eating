@@ -1,6 +1,7 @@
 // localStorage helpers. Everything is wrapped so private-mode Safari can't crash the game.
-import { repairAppearance, RESTAURANT_IDS, DEFAULT_APPEARANCE } from './schema.js';
-import { RESTAURANT_BY_ID, VF_FRAMES, VF_TITLES } from './data.js';
+import { repairAppearance, RESTAURANT_IDS, DEFAULT_APPEARANCE, sanitizeBuild, isValidName } from './schema.js';
+import { RESTAURANT_BY_ID, VF_FRAMES, VF_TITLES, BUILDS } from './data.js';
+import { buildItem, defaultBuild } from './build.js';
 import { repairHunt } from './hunt.js';
 import { repairMissions, mergeMissions } from './missions.js';
 
@@ -29,8 +30,15 @@ export function loadAppearance() {
 }
 export const saveAppearance = (app) => write(KEYS.app, app);
 
+/** The kitchen a saved review's food was built in ('pizza', 'sundae'), or null for a food off the menu. */
+const builtIn = (r) => {
+  const kind = RESTAURANT_BY_ID[r.rid].build;
+  return kind && r.fid === BUILDS[kind].fid ? kind : null;
+};
+
 /** Which menu item a saved review was about ('' if it can't be told). Older reviews only have the name. */
 function foodId(r) {
+  if (builtIn(r)) return r.fid; // a build-your-own creation
   const menu = RESTAURANT_BY_ID[r.rid].menu;
   const name = String(r.food || '');
   // a Mystery Plate ("Pickle Sundae") still counts as trying the food underneath
@@ -65,17 +73,25 @@ export function loadReviews() {
   if (!Array.isArray(raw)) return [];
   return trimReviews(raw
     .filter((r) => r && RESTAURANT_IDS.includes(r.rid) && Number.isInteger(r.stars) && r.stars >= 1 && r.stars <= 5)
-    .map((r) => ({
-      rid: r.rid,
-      fid: foodId(r),
-      food: String(r.food || '').slice(0, 40),
-      emoji: String(r.emoji || '').slice(0, 8),
-      mood: String(r.mood || '').slice(0, 8),
-      stars: r.stars,
-      ts: Number(r.ts) || Date.now(),
-      frame: frameId(r.frame),
-      title: titleIndex(r.title),
-    })));
+    .map((r) => {
+      // a build-your-own creation is rebuilt from its preset choices: its name and emoji are never read from storage
+      const kind = builtIn(r);
+      const build = kind && sanitizeBuild(r.build);
+      const made = kind && buildItem(build && build.k === kind ? build : defaultBuild(kind));
+      return {
+        rid: r.rid,
+        fid: foodId(r),
+        food: made ? made.name : String(r.food || '').slice(0, 40),
+        emoji: made ? made.emoji : String(r.emoji || '').slice(0, 8),
+        mood: String(r.mood || '').slice(0, 8),
+        stars: r.stars,
+        ts: Number(r.ts) || Date.now(),
+        frame: frameId(r.frame),
+        title: titleIndex(r.title),
+        ...(made && { build: made.build }),
+        ...(isValidName(r.co) && { co: r.co }), // the friend who co-hosted (a preset fun name)
+      };
+    }));
 }
 /** Add a review to this session's `list` and save it. Returns the new list even if saving fails. */
 export function addReview(list, review) {

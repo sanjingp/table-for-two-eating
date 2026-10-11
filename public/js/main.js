@@ -1,10 +1,11 @@
 // Table for Two Eating — game bootstrap, modes and main loop.
 import * as THREE from '../vendor/three.module.js';
-import { LINES, RACE, RACE_LINE, isValidRoom, repairAppearance, raceDoorSpot, pickRaceTarget, ROOM_WORDS_A, ROOM_WORDS_B } from './schema.js';
+import { LINES, RACE, RACE_LINE, TABLE, isValidRoom, repairAppearance, raceDoorSpot, pickRaceTarget, ROOM_WORDS_A, ROOM_WORDS_B } from './schema.js';
 import {
   REVIEW_EMOTES, REVIEW_LINES, PLAZA_EMOTES, PLAZA_LINES, COHOST, FOOD_REACTIONS, MYSTERY_TWISTS, FOOD_TAGS, COMIC_WORDS,
-  VF_FRAMES, VF_TITLES, DANCE_MOVES, EMOTE_INFO, INGREDIENTS,
+  VF_FRAMES, VF_TITLES, DANCE_MOVES, EMOTE_INFO, INGREDIENTS, BUILDS, WAIT_EMOTES,
 } from './data.js';
+import { defaultBuild, buildItem, toggleTopping, randomBuild, mysteryItem, tableFood, tableItem } from './build.js';
 import { $, $$, clamp, damp, lerpAngle, pick, randInt, emojiTexture, smooth01 } from './util.js';
 import { Character } from './character.js';
 import { buildWorld, RING_RADIUS, WORLD_RADIUS, INTERIOR_ORIGIN } from './world.js';
@@ -117,6 +118,15 @@ const S = {
   lastDance: null,
   restaurant: null,
   item: null,
+  build: null, // build-your-own choices while in the kitchen: { k, b, t }
+  seat: 0, // which chair at the table: 0, or 1 when co-hosting a friend's review
+  co: null, // the friend sharing the table: { sid, id, name, host (is the table ours?), stars (what they rated) }
+  coAsk: null, // the invite we sent and wait on: { id, name, sid, timer, cancelled }
+  coAsks: [], // every invite the server has not replied to yet, oldest first (it replies in order)
+  coInvite: null, // an invite we got: { sid, id, rid, accepted, timer }
+  coJoining: null, // the table we are walking in to join (cleared if it ends before we sit down)
+  coLast: null, // the last friend we shared a table with: { name, stars } (for the tests)
+  filmedWith: '', // the friend this review is being filmed with (saved with the rating)
   plazaPos: new THREE.Vector3(),
   rolling: false,
   recStart: 0,
@@ -172,7 +182,7 @@ function addRemote(p) {
   removeRemote(p.id);
   if (remotes.size >= MAX_REMOTES) return false;
   const char = new Character(p.app, { label: p.app.name });
-  const e = { char, buf: [], an: 'idle', name: p.app.name, lastY: 0, rising: false };
+  const e = { char, buf: [], an: 'idle', name: p.app.name, lastY: 0, rising: false, seated: false };
   if (p.st) {
     char.root.position.set(p.st.x, p.st.y, p.st.z);
     char.root.rotation.y = p.st.ry;
@@ -201,11 +211,15 @@ function pushState(e, st) {
   e.lastY = st.y;
   if (st.an !== e.an) {
     e.an = st.an;
-    e.char.action = st.an === 'air' || st.an === 'slide' || st.an === 'scoot' ? st.an : null;
-    e.char.holdCamera(st.an === 'review');
-    if (st.an === 'review') e.char.showBubble(emojiTexture('🎬'), 0.7, 3600);
-    else e.char.clearBubble();
+    if (!e.seated) showAnim(e);
   }
+}
+/** Dress a friend for what they are doing: bouncing, sliding, scooting, or filming inside a restaurant. */
+function showAnim(e) {
+  e.char.action = e.an === 'air' || e.an === 'slide' || e.an === 'scoot' ? e.an : null;
+  e.char.holdCamera(e.an === 'review');
+  if (e.an === 'review') e.char.showBubble(emojiTexture('🎬'), 0.7, 3600);
+  else e.char.clearBubble();
 }
 const tmpV = new THREE.Vector3();
 const tmpBefore = new THREE.Vector3();
@@ -216,7 +230,8 @@ function updateRemotes(dt, nowMs) {
   for (const e of remotes.values()) {
     const b = e.buf;
     const root = e.char.root;
-    if (b.length) {
+    if (e.seated) e.char.speed = 0; // sitting at our table (see seatFriend): they stay in their chair
+    else if (b.length) {
       let tx = b[b.length - 1].x;
       let ty = b[b.length - 1].y;
       let tz = b[b.length - 1].z;
@@ -256,8 +271,12 @@ function updateNetChip() {
 
 let emotesSeen = 0; // emotes received from friends (for tests)
 const net = new Net(room, {
-  onStatus: updateNetChip,
+  onStatus: () => {
+    updateNetChip();
+    refreshCohostUi(); // a co-host can only be invited while online
+  },
   onReset: () => {
+    lostTables(); // the server was running these too
     for (const id of [...remotes.keys()]) removeRemote(id);
     updateNetChip();
     if (S.race && !S.race.solo) clearRace(); // the server was running it
@@ -272,13 +291,20 @@ const net = new Net(room, {
   onJoin: (p) => {
     if (!addRemote(p)) return;
     updateNetChip();
+    refreshCohostUi();
     sfx.join();
     UI.toast(`👋 ${p.app.name} came to town!`);
   },
   onLeave: (id) => {
     const e = remotes.get(id);
+    // whatever we had going with them is over (the server says so too; either message will do)
+    if (S.co?.id === id) tableEnded(S.co.sid);
+    if (S.coAsk?.id === id) askOver(S.coAsk, 'gone');
+    if (S.coInvite?.id === id) dropInvite();
+    if (S.coJoining?.id === id) S.coJoining = null;
     removeRemote(id);
     updateNetChip();
+    refreshCohostUi();
     if (e) UI.toast(`👋 ${e.name} went home`);
   },
   onState: (id, st) => {
@@ -291,6 +317,24 @@ const net = new Net(room, {
   },
   onRace: (id, rid) => beginRace(rid, { starter: id }),
   onWin: (id) => finishRace(id === null ? null : id === net.id ? 'me' : id),
+  onTableInvite: (sid, id, rid) => gotInvite(sid, id, rid),
+  onTableAsked: (sid) => {
+    const ask = S.coAsks.shift(); // the server's reply to our oldest unanswered invite
+    if (ask) ask.sid = sid;
+    if (!ask || ask.cancelled) net.sendTableLeave(sid); // we changed our mind before the server answered
+  },
+  onTableNo: (id, why, sid) => {
+    // refused straight away (no session was made): that is the reply to our oldest unanswered invite
+    const ask = sid ? S.coAsk : S.coAsks.shift();
+    if (ask && (!sid || ask.sid === sid)) askOver(ask, why);
+  },
+  onTableJoin: (sid, rid, seats) => (seats[0] === net.id ? friendJoined(sid, rid, seats[1]) : joinTable(sid, rid, seats[0])),
+  onTableFood: (sid, food) => tableServed(sid, food),
+  onTableBite: (sid, id) => {
+    if (S.co?.sid === sid && S.co.id === id && remotes.has(id)) bite(remotes.get(id).char);
+  },
+  onTableDone: (sid, id, stars) => tableRated(sid, id, stars),
+  onTableEnd: (sid) => tableEnded(sid),
   onSay: (id, l) => remotes.get(id)?.char.say(LINES[l]),
   onAppearance: (id, app) => {
     const e = remotes.get(id);
@@ -299,6 +343,7 @@ const net = new Net(room, {
     if (app.name !== e.name) {
       e.name = app.name;
       e.char.setLabel(app.name);
+      refreshCohostUi();
     }
   },
 });
@@ -371,6 +416,7 @@ function onResize() {
   renderer.setSize(innerWidth, innerHeight);
   if (S.mode === 'studio') studioViewShift();
   else if (S.mode === 'review') setViewShift(0, reviewPanelHeight());
+  else if (S.mode === 'build') setViewShift(0, panelHeight('.build-controls'));
   else applyViewShift();
 }
 addEventListener('resize', onResize);
@@ -378,7 +424,9 @@ addEventListener('orientationchange', () => setTimeout(onResize, 300));
 
 function showHud(on) {
   UI.show('#hud', on);
-  if (!on) UI.show('#emote-panel', false);
+  if (on) return;
+  UI.show('#emote-panel', false);
+  if (S.coInvite && !S.coInvite.accepted) answerInvite('busy'); // off to do something else: the friend is told we are busy
 }
 
 // ---------------------------------------------------------------- plaza
@@ -746,53 +794,82 @@ function disposeFood(f) {
   f.traverse((o) => o.geometry?.dispose());
 }
 
-function enterRestaurant(r) {
+/** Walk in. `table` ({ sid, id }) is set when a friend asked us to co-host: we take the second chair at their table. */
+function enterRestaurant(r, table = null) {
   if (S.mode !== 'plaza') return;
   unlockAudio();
   S.mode = 'transition';
+  S.coJoining = table;
   sfx.door();
   showHud(false);
   fade(() => {
-    S.plazaPos.copy(player.root.position).setY(0);
+    const joining = S.coJoining && remotes.has(S.coJoining.id) ? S.coJoining : null; // (the friend may have left meanwhile)
+    S.coJoining = null;
+    // a co-host was not at the door: friends see them appear next to the host
+    if (table) S.plazaPos.copy(r.door).add(doorSide(r, 1.5));
+    else S.plazaPos.copy(player.root.position).setY(0);
     S.restaurant = r;
+    S.seat = joining ? 1 : 0;
     setNear(null);
     player.speed = 0;
     player.action = null;
     S.vel.set(0, 0, 0);
     S.y = S.vy = 0;
     world.interior.setRestaurant(r);
-    seat(player, 0);
-    player.petSpot = TABLE_PET_SPOT; // the pet sits on the floor next to the table
+    seat(player, S.seat);
+    player.petSpot = PET_SPOTS[S.seat]; // the pet sits on the floor next to the table
     player.labelSprite.visible = false;
     cohost.setAppearance({ ...S.app, ...COHOST });
     cohost.root.visible = true;
-    seat(cohost, 1);
+    seat(cohost, 1 - S.seat);
     setRolling(false);
-    if (r.belt) {
-      belt.load(r);
-      belt.setFast(S.settings.beltFast);
-      openBelt();
-    } else openOrder();
-    camera.position.copy(r.belt ? BELT_CAM : world.interior.camPos);
-    if (!r.belt) camera.position.add(ORDER_CAM_OFFSET);
-    interiorLook.copy(r.belt ? BELT_LOOK : world.interior.camTarget);
+    if (joining) {
+      seatFriend({ sid: joining.sid, id: joining.id, host: false });
+      openWait();
+    } else openMenu(r);
+    const onBelt = S.mode === 'belt';
+    camera.position.copy(onBelt ? BELT_CAM : world.interior.camPos);
+    if (S.mode === 'order') camera.position.add(ORDER_CAM_OFFSET);
+    interiorLook.copy(onBelt ? BELT_LOOK : world.interior.camTarget);
     camera.lookAt(interiorLook);
     sendState(true);
+    if (table && !joining) {
+      net.sendTableLeave(table.sid); // (in case the server still has us at that table)
+      UI.toast('Your friend had to go. You pick the food! 🍽️', 3200);
+    }
+    if (joining?.food) tableServed(joining.sid, joining.food); // the host had already chosen
   });
 }
 
-const TABLE_PET_SPOT = { x: INTERIOR_ORIGIN.x - 2.25, z: INTERIOR_ORIGIN.z + 0.35, yaw: 0.25 };
+/** How a visit starts: the conveyor belt at the sushi restaurant, the menu card everywhere else. */
+function openMenu(r) {
+  if (r.belt) {
+    belt.load(r);
+    belt.setFast(S.settings.beltFast);
+    openBelt();
+  } else openOrder();
+}
+
+// where each chair's pet sits on the floor: left of the table for the first chair, right for the co-host's
+const PET_SPOTS = [
+  { x: INTERIOR_ORIGIN.x - 2.25, z: INTERIOR_ORIGIN.z + 0.35, yaw: 0.25 },
+  { x: INTERIOR_ORIGIN.x + 2.3, z: INTERIOR_ORIGIN.z + 0.35, yaw: -0.25 },
+];
+/** A step sideways along restaurant r's front wall. */
+const doorSide = (r, d) => new THREE.Vector3(-r.door.z, 0, r.door.x).normalize().multiplyScalar(d);
 
 /** The menu card. Foods that would move a mission along get a 🎯. */
 function openOrder() {
   const r = S.restaurant;
   const tried = new Set(S.reviews.filter((rv) => rv.rid === r.id).map((rv) => rv.fid));
   const isGoal = (item) => menuGoal(S.quests.missions, { rid: r.id, fid: item.id, react: item.react || null, isNew: !tried.has(item.id) });
-  UI.buildOrder(r, (item) => !S.rolling && orderFood(item), isGoal);
+  UI.buildOrder(r, (item) => !S.rolling && orderFood(item), isGoal, openBuild);
   UI.show('#order-belt', !!r.belt);
   UI.show('#screen-belt', false);
+  UI.show('#screen-build', false);
   UI.show('#screen-order', true);
   S.mode = 'order';
+  refreshCohostUi();
 }
 
 // ---------------------------------------------------------------- sushi conveyor belt
@@ -822,6 +899,7 @@ function openBelt() {
   UI.show('#screen-order', false);
   UI.show('#screen-belt', true);
   S.mode = 'belt';
+  refreshCohostUi();
 }
 
 /** A finger went down on the 3D view: grab the plate under it. */
@@ -835,7 +913,7 @@ function tapBelt(clientX, clientY) {
   unlockAudio();
   plate.taken = true;
   const item = plate.mystery ? rollMystery(S.restaurant) : plate.item;
-  const to = belt.group.worldToLocal(world.interior.plates[0].clone());
+  const to = belt.group.worldToLocal(world.interior.plates[S.seat].clone());
   S.grab = { plate, item, from: plate.group.position.clone(), to, t: 0 };
   if (plate.mystery) sfx.drumroll();
   else sfx.grab();
@@ -875,33 +953,39 @@ $('#order-belt').addEventListener('click', () => {
   openBelt();
 });
 
+/** Put `item` on a plate: ours, or the other chair's (the co-host's food sits a little turned). */
+function serve(item, mine) {
+  const food = createFood(item.id, S.restaurant.accent, item.tint, item.build);
+  food.position.copy(world.interior.plates[mine ? S.seat : 1 - S.seat]).add(FOOD_LIFT);
+  if (!mine) food.rotation.y = 0.6;
+  food.userData.bites = 0;
+  scene.add(food);
+  return food;
+}
+
 function orderFood(item) {
-  if (S.mode !== 'order' && S.mode !== 'belt') return;
+  if (!['order', 'belt', 'build', 'wait'].includes(S.mode)) return;
   sfx.ding();
   S.item = item;
-  const r = S.restaurant;
+  S.build = null;
   disposeFood(S.food);
   disposeFood(S.cohostFood);
-  S.food = createFood(item.id, r.accent, item.tint);
-  S.food.position.copy(world.interior.plates[0]).add(FOOD_LIFT);
-  scene.add(S.food);
-  S.cohostFood = createFood(item.id, r.accent, item.tint);
-  S.cohostFood.position.copy(world.interior.plates[1]).add(FOOD_LIFT);
-  S.cohostFood.rotation.y = 0.6;
-  scene.add(S.cohostFood);
+  S.food = serve(item, true);
+  S.cohostFood = serve(item, false);
   S.foodPop = 0;
   S.bites = 0;
   UI.show('#screen-order', false);
   UI.show('#screen-belt', false);
+  UI.show('#screen-build', false);
+  UI.show('#screen-wait', false);
+  if (S.co?.host) net.sendTableFood(S.co.sid, tableFood(item)); // the friend at our table gets the same
   startReview();
 }
 
 // Mystery Plate: a random item from this menu, usually with a silly twist (2 times in 3).
 function rollMystery(r) {
-  const base = { ...pick(r.menu), mystery: true };
-  if (randInt(3) === 2) return base;
-  const twist = pick(MYSTERY_TWISTS);
-  return { ...base, name: `${twist.word} ${base.name}`, emoji: twist.emoji, react: twist.react, tint: twist.tint, twist: twist.id };
+  const base = pick(r.menu);
+  return mysteryItem(base, randInt(3) === 2 ? null : pick(MYSTERY_TWISTS));
 }
 
 function setRolling(on) {
@@ -923,6 +1007,90 @@ function orderSurprise() {
 }
 $('#order-surprise').addEventListener('click', orderSurprise);
 
+// ---------------------------------------------------------------- build your own pizza / sundae
+// The kitchen: preset chips at the bottom of the screen, and the food being built on our 3D plate.
+const BUILD_CAM_OFFSET = new THREE.Vector3(0, 0.62, 0.92); // from the plate
+const BUILD_LOOK_OFFSET = new THREE.Vector3(0, 0.1, 0);
+
+function openBuild() {
+  const kind = S.restaurant?.build;
+  if (S.mode !== 'order' || S.rolling || !kind) return;
+  sfx.whoosh();
+  S.mode = 'build';
+  S.build = defaultBuild(kind);
+  UI.buildKitchen(kind, { onBase: pickBase, onTopping: pickTopping });
+  UI.show('#screen-order', false);
+  UI.show('#screen-build', true);
+  showBuild();
+  requestAnimationFrame(() => S.mode === 'build' && setViewShift(0, panelHeight('.build-controls')));
+}
+
+/** Put the food as built so far on the plate (a fresh model each time: they are tiny). */
+function showBuild() {
+  const item = buildItem(S.build);
+  const turn = S.food ? S.food.rotation.y : 0;
+  disposeFood(S.food);
+  S.food = serve(item, true);
+  S.food.rotation.y = turn;
+  S.foodPop = 0.6; // a little pop
+  UI.syncKitchen(S.build);
+}
+
+function pickBase(id) {
+  if (S.mode !== 'build' || S.build.b === id) return;
+  S.build = { ...S.build, b: id };
+  sfx.pop();
+  showBuild();
+}
+
+function pickTopping(id, chip) {
+  if (S.mode !== 'build') return;
+  const { build, full } = toggleTopping(S.build, id);
+  if (full) {
+    sfx.tap();
+    UI.nope(chip);
+    UI.toast(`The plate is full! Take one off to swap. ${BUILDS[S.build.k].emoji}`, 2400);
+    return;
+  }
+  const added = build.t.length > S.build.t.length;
+  S.build = build;
+  if (added) sfx.sparkle();
+  else sfx.pop();
+  showBuild();
+}
+
+function closeBuild() {
+  S.build = null;
+  disposeFood(S.food);
+  S.food = null;
+  setViewShift(0, 0);
+  UI.show('#screen-build', false);
+}
+
+$('#build-random').addEventListener('click', () => {
+  if (S.mode !== 'build') return;
+  sfx.drumroll();
+  S.build = randomBuild(S.build.k);
+  showBuild();
+});
+$('#build-back').addEventListener('click', () => {
+  if (S.mode !== 'build') return;
+  sfx.tap();
+  closeBuild();
+  openOrder();
+});
+$('#build-done').addEventListener('click', () => {
+  if (S.mode !== 'build') return;
+  const item = buildItem(S.build);
+  setViewShift(0, 0);
+  orderFood(item);
+  UI.toast(`Your very own ${item.emoji} ${item.name}!`, 3000);
+});
+
+function panelHeight(sel) {
+  const el = $(sel);
+  return Math.min(innerHeight * 0.5, (el && el.offsetHeight) || 220);
+}
 function reviewPanelHeight() {
   const el = $('.review-controls');
   return Math.min(innerHeight * 0.45, (el && el.offsetHeight) || 220);
@@ -931,20 +1099,23 @@ function reviewPanelHeight() {
 function startReview() {
   S.mode = 'review';
   S.recStart = performance.now();
+  S.filmedWith = S.co ? S.co.name : '';
   player.holdCamera(true);
   $('#vf-rest').textContent = S.restaurant.name;
+  refreshCohostUi();
   UI.setViewfinder(S.settings.frame, S.settings.title);
   $('#btn-talk').textContent = `🗣️ Talk out loud: ${S.settings.speak ? 'ON' : 'OFF'}`;
   UI.buildReviewControls(REVIEW_EMOTES, REVIEW_LINES, { onEmote: reviewEmote, onBite: () => bite(player), onSay: reviewSay });
   UI.show('#screen-review', true);
   requestAnimationFrame(() => setViewShift(0, reviewPanelHeight()));
   sfx.rec();
-  later(() => cohost.playEmote('wave'), 600);
+  later(() => !S.co && cohost.playEmote('wave'), 600);
 }
 
+/** The grown-up co-host joins in. (A friend in that chair does their own reacting.) */
 function cohostReact() {
   later(() => {
-    if (S.mode === 'review') cohost.playEmote(pick(['thumbs', 'yum', 'wow', 'heart']));
+    if (S.mode === 'review' && !S.co) cohost.playEmote(pick(['thumbs', 'yum', 'wow', 'heart']));
   }, 700);
 }
 
@@ -985,22 +1156,27 @@ function reviewSay(i) {
   if (S.settings.speak) speak(LINES[i]);
   if (i === 1) {
     later(() => S.mode === 'review' && bite(player), 900);
-    later(() => S.mode === 'review' && bite(cohost), 1300);
+    later(() => S.mode === 'review' && !S.co && bite(cohost), 1300);
   } else cohostReact();
 }
 
 function bite(who) {
   if (S.mode !== 'review' || !S.item) return;
   const isPlayer = who === player;
+  if (!isPlayer && who !== cohost && friendAtTable()?.char !== who) return; // a friend who has left the table since
   const food = isPlayer ? S.food : S.cohostFood;
   if (!food || !food.visible) {
     if (isPlayer) UI.toast('All gone! Time to rate it ⭐');
     return;
   }
   // Emotes can replace the bite pose before its held food and timers finish.
-  if (who.heldItem || who.emote === 'bite') return;
+  if (who.heldItem || who.emote === 'bite') {
+    if (!isPlayer && who !== cohost) later(() => bite(who), 300); // a friend's next bite arrived early: it waits its turn
+    return;
+  }
   who.playEmote('bite');
-  const mini = createFood(S.item.id, undefined, S.item.tint);
+  if (isPlayer && S.co) net.sendTableBite(S.co.sid); // the friend at the table sees it
+  const mini = createFood(S.item.id, undefined, S.item.tint, S.item.build);
   mini.scale.setScalar(0.45);
   mini.rotation.set(Math.PI / 2, 0, 0);
   who.setHeldItem(mini);
@@ -1015,7 +1191,7 @@ function bite(who) {
         sfx.sparkle();
         UI.toast('All gone! 😋 Tap “Rate it!”');
       }
-    }
+    } else if (++food.userData.bites >= 3) food.visible = false; // the other plate empties after three bites too
   }, 420);
   later(() => {
     who.setHeldItem(null);
@@ -1028,6 +1204,7 @@ function bite(who) {
 function foodReaction(who) {
   const kind = S.item?.react;
   if (!kind || S.mode !== 'review') return;
+  if (who !== player && who !== cohost) return; // a friend's own game sends their reaction
   who.playEmote(kind);
   if (who !== player) return;
   net.sendEmote(kind);
@@ -1062,7 +1239,11 @@ function saveRating(stars, mood) {
   S.reviews = addReview(S.reviews, {
     rid: r.id, fid: S.item.id, food: S.item.name, emoji: S.item.emoji, mood, stars, ts: Date.now(),
     frame: S.settings.frame, title: S.settings.title, // the comic camera look it was filmed with
+    ...(S.item.build && { build: S.item.build }), // what went on a build-your-own food
+    ...(S.filmedWith && { co: S.filmedWith }), // the friend who co-hosted
   });
+  // each of the two at a table rates for themselves; the friend only hears how many stars
+  if (S.co) net.sendTableDone(S.co.sid, stars);
   S.progress = passportProgress(S.reviews);
   // passport prizes and finished missions are celebrated once we are back in the plaza
   if (!before.stickers.includes(r.id) && S.progress.stickers.includes(r.id)) S.cheers.push({ text: `🎫 New sticker: ${r.sticker} ${r.name}!` });
@@ -1077,10 +1258,23 @@ function saveRating(stars, mood) {
   confetti(stars >= 4 ? 220 : 140);
   UI.show('#screen-rate', false);
   player.playEmote(stars >= 3 ? 'wow' : 'thumbs');
-  cohost.playEmote('heart');
+  if (!S.co) cohost.playEmote('heart');
   UI.toast(`Review saved! ${'⭐'.repeat(stars)}`, 3000);
-  later(leaveRestaurant, 1900);
+  later(afterRating, 1900);
 }
+
+/** Rated: off we go. At a table for two, the first to rate stays a moment to see what the friend gives it. */
+function afterRating() {
+  if (!S.co || S.co.stars) {
+    leaveRestaurant();
+    return;
+  }
+  S.mode = 'after';
+  $('#wait-text').textContent = `⭐ What will ${S.co.name} give it?`;
+  UI.show('#screen-wait', true);
+  later(leaveRestaurant, AFTER_WAIT * 1000); // (not for long: the friend may be a slow eater)
+}
+const AFTER_WAIT = 25; // seconds
 
 $('#order-leave').addEventListener('click', () => {
   sfx.tap();
@@ -1093,22 +1287,35 @@ function leaveRestaurant() {
   S.mode = 'transition';
   clearLater();
   setRolling(false);
+  // getting up from a table for two: the friend carries on with the grown-up co-host
+  if (S.coAsk) cancelAsk();
+  if (S.co) {
+    net.sendTableLeave(S.co.sid);
+    unseatFriend();
+  }
+  UI.show('#screen-cohost', false);
   fade(() => {
     const r = S.restaurant;
     disposeFood(S.food);
     disposeFood(S.cohostFood);
     S.food = S.cohostFood = null;
     S.grab = null;
+    S.build = null;
     belt.unload();
     UI.show('#screen-belt', false);
+    UI.show('#screen-build', false);
+    UI.show('#screen-wait', false);
     cohost.root.visible = false;
     player.pose = 'stand';
     player.petSpot = null;
     player.labelSprite.visible = true;
     player.holdCamera(false);
     player.setHeldItem(null);
-    // step out of the door toward the plaza
+    // step out of the door toward the plaza (a co-host comes out beside the host, not on top of them)
     const out = r.door.clone().multiplyScalar((r.door.length() - 4.5) / r.door.length());
+    if (S.seat) out.add(doorSide(r, 1.8));
+    S.seat = 0;
+    S.filmedWith = '';
     player.root.position.set(out.x, 0, out.z);
     S.facing = Math.atan2(-out.x, -out.z);
     player.root.rotation.y = S.facing;
@@ -1124,6 +1331,294 @@ function leaveRestaurant() {
     followCamera(0, true);
     sendState(true);
   }).then(celebrate);
+}
+
+// ---------------------------------------------------------------- friend as co-host (a table for two)
+// The host, inside a restaurant and still choosing, asks a friend from town to take the co-host's
+// chair. The friend says yes or no with two big buttons. The server runs the table (see server.js):
+// we only send ids, preset foods, bites and stars. Both get the host's food, see each other's bites
+// and emotes, and each saves their own rating. When one leaves, the grown-up co-host sits back down.
+const friendAtTable = () => (S.co ? remotes.get(S.co.id) : null);
+const NO_TEXT = {
+  no: (name) => `${name} can't right now. Maybe next time! 💛`,
+  busy: (name) => `${name} is busy right now. Try again later! ⏳`,
+  timeout: (name) => `${name} didn't answer. Maybe next time! 💛`,
+  gone: (name) => `👋 ${name} went home`,
+  wait: () => 'Hold on a moment, then ask again ⏳',
+};
+
+/** Sit friend `table.id` in the other chair. table = { sid, id, host }: host says whether the table is ours. */
+function seatFriend(table) {
+  const e = remotes.get(table.id);
+  S.co = { ...table, name: e.name, stars: 0 };
+  e.seated = true;
+  e.char.action = null;
+  e.char.holdCamera(false);
+  e.char.clearBubble();
+  seat(e.char, 1 - S.seat);
+  e.char.petSpot = PET_SPOTS[1 - S.seat];
+  cohost.root.visible = false;
+  refreshCohostUi();
+}
+
+/** The friend's chair is free again: they are shown back in town, and the grown-up co-host returns. */
+function unseatFriend() {
+  const co = S.co;
+  if (!co) return null;
+  S.co = null;
+  S.coLast = { name: co.name, stars: co.stars };
+  const e = remotes.get(co.id);
+  if (e) {
+    e.seated = false;
+    e.char.pose = 'stand';
+    e.char.petSpot = null;
+    disposeFood(e.char.heldItem); // caught mid-bite
+    e.char.setHeldItem(null);
+    const last = e.buf[e.buf.length - 1];
+    if (last) {
+      e.char.root.position.set(last.x, last.y, last.z);
+      e.char.root.rotation.y = last.ry;
+    }
+    showAnim(e);
+  }
+  if (S.restaurant) {
+    cohost.root.visible = true;
+    seat(cohost, 1 - S.seat);
+  }
+  refreshCohostUi();
+  return co;
+}
+
+/** The invite buttons (menu and belt) and the "with a friend" line on the viewfinder. */
+function refreshCohostUi() {
+  const canAsk = net.status === 'online' && remotes.size > 0;
+  for (const sel of ['#order-cohost', '#belt-cohost']) {
+    const b = $(sel);
+    UI.show(b, !!S.co || canAsk);
+    b.textContent = S.co ? `👯 With ${S.co.name}` : '👯 Invite a co-host';
+    b.classList.toggle('with', !!S.co);
+  }
+  $('#vf-cohost').textContent = S.co ? `👯 with ${S.co.name}` : '';
+  UI.show('#vf-cohost', !!S.co);
+  if (!S.coAsk && !$('#screen-cohost').classList.contains('hidden')) showFriends(); // friends came or went while picking
+}
+
+// ---- hosting: ask a friend
+function showFriends() {
+  UI.buildFriendPicker([...remotes].map(([id, e]) => ({ id, name: e.name, color: e.char.app.topColor })), askFriend);
+}
+
+function openCohostPicker() {
+  if ((S.mode !== 'order' && S.mode !== 'belt') || S.rolling || S.grab || S.coAsk) return;
+  sfx.tap();
+  if (S.co) {
+    UI.toast(`👯 ${S.co.name} is at your table. Pick a food together!`);
+    return;
+  }
+  showFriends();
+  UI.show('#screen-cohost', true);
+}
+$('#order-cohost').addEventListener('click', openCohostPicker);
+$('#belt-cohost').addEventListener('click', openCohostPicker);
+
+function askFriend(id) {
+  const e = remotes.get(id);
+  if (!e || S.co || S.coAsk || !S.restaurant) return;
+  sfx.pop();
+  if (!net.sendTableInvite(id, S.restaurant.id)) {
+    UI.show('#screen-cohost', false);
+    UI.toast('You are playing solo right now 🟡');
+    return;
+  }
+  // the server always answers; the timer is only in case the answer gets lost
+  const ask = { id, name: e.name, sid: null, cancelled: false, timer: 0 };
+  ask.timer = setTimeout(() => askOver(ask, 'timeout'), (TABLE.inviteTtl + 5) * 1000);
+  S.coAsk = ask;
+  S.coAsks.push(ask);
+  UI.friendPickerWaiting(e.name);
+}
+
+/** "Never mind" (or leaving the restaurant): take the invite back. */
+function cancelAsk() {
+  const ask = S.coAsk;
+  if (!ask) return;
+  clearTimeout(ask.timer);
+  ask.cancelled = true;
+  S.coAsk = null;
+  if (ask.sid) net.sendTableLeave(ask.sid); // (if the server has not told us the id yet, onTableAsked takes it back)
+}
+$('#cohost-close').addEventListener('click', () => {
+  sfx.tap();
+  cancelAsk();
+  UI.show('#screen-cohost', false);
+});
+
+/** Invite `ask` did not work out. why: see TABLE_WHY. (An invite we already took back ends quietly.) */
+function askOver(ask, why) {
+  clearTimeout(ask.timer);
+  S.coAsks = S.coAsks.filter((a) => a !== ask);
+  if (S.coAsk !== ask) return;
+  S.coAsk = null;
+  UI.show('#screen-cohost', false);
+  UI.toast(NO_TEXT[why](ask.name), 3400);
+  sfx.pop();
+}
+
+/** The friend said yes and the server sat them at our table. */
+function friendJoined(sid, rid, id) {
+  const ask = S.coAsk;
+  const ours = ask && ask.sid === sid && ask.id === id && S.restaurant?.id === rid && remotes.has(id) && (S.mode === 'order' || S.mode === 'belt');
+  if (!ours) {
+    net.sendTableLeave(sid); // an invite we took back, or we are no longer where we were when we asked
+    return;
+  }
+  clearTimeout(ask.timer);
+  S.coAsk = null;
+  UI.show('#screen-cohost', false);
+  seatFriend({ sid, id, host: true });
+  sfx.join();
+  confetti(60);
+  UI.toast(`🎉 ${S.co.name} is your co-host! Pick a food for you both!`, 3600);
+}
+
+// ---- being asked: yes or no
+function gotInvite(sid, id, rid) {
+  const e = remotes.get(id);
+  const r = world.restaurants.find((x) => x.id === rid);
+  // only when free to go: out in town, not already asked. Otherwise the game says "busy" by itself.
+  if (!e || !r || S.mode !== 'plaza' || S.coInvite || S.co || S.coJoining) {
+    net.sendTableAnswer(sid, 'busy');
+    return;
+  }
+  S.coInvite = { sid, id, rid, accepted: false, timer: setTimeout(dropInvite, (TABLE.inviteTtl + 2) * 1000) };
+  $('#co-invite-text').textContent = `🎬 ${e.name} asks: be my co-host at ${r.name}?`;
+  UI.show('#co-invite', true);
+  UI.show('#emote-panel', false);
+  sfx.sparkle();
+}
+
+/** The invite is over (answered, taken back, or timed out): put the card away. */
+function dropInvite() {
+  if (!S.coInvite) return;
+  clearTimeout(S.coInvite.timer);
+  S.coInvite = null;
+  UI.show('#co-invite', false);
+}
+
+function answerInvite(answer) {
+  const inv = S.coInvite;
+  if (!inv || inv.accepted) return;
+  net.sendTableAnswer(inv.sid, answer);
+  if (answer !== 'yes') {
+    dropInvite();
+    return;
+  }
+  // wait for the server to seat us (see joinTable); if it never does, the invite is dropped
+  inv.accepted = true;
+  UI.show('#co-invite', false);
+  clearTimeout(inv.timer);
+  inv.timer = setTimeout(dropInvite, 6000);
+}
+$('#co-invite-yes').addEventListener('click', () => {
+  unlockAudio();
+  sfx.pop();
+  answerInvite('yes');
+});
+$('#co-invite-no').addEventListener('click', () => {
+  sfx.tap();
+  answerInvite('no');
+});
+
+/** The server sat us at friend `id`'s table in restaurant `rid`: walk in and take the co-host's chair. */
+function joinTable(sid, rid, id) {
+  const inv = S.coInvite;
+  const r = world.restaurants.find((x) => x.id === rid);
+  const ours = inv && inv.accepted && inv.sid === sid && inv.id === id && r && remotes.has(id);
+  dropInvite();
+  if (S.mode === 'ride' && ours) {
+    // asked while on the slide: hop off
+    S.ride = null;
+    S.mode = 'plaza';
+    S.y = S.vy = player.root.position.y = 0;
+  }
+  if (!ours || S.mode !== 'plaza') {
+    net.sendTableLeave(sid);
+    return;
+  }
+  UI.toast(`🎬 Off to ${r.name} with ${remotes.get(id).name}!`, 2600);
+  enterRestaurant(r, { sid, id });
+}
+
+/** Sitting in the co-host's chair while the host chooses: emotes only. */
+function openWait() {
+  S.mode = 'wait';
+  $('#wait-text').textContent = `🍽️ ${S.co.name} is picking the food…`;
+  UI.show('#screen-wait', true);
+}
+UI.buildWaitEmotes(WAIT_EMOTES, (e) => (S.mode === 'wait' || S.mode === 'after') && doEmote(e));
+$('#wait-leave').addEventListener('click', () => {
+  if (S.mode !== 'wait' && S.mode !== 'after') return;
+  sfx.tap();
+  leaveRestaurant();
+});
+
+/** The host chose: the same food lands on our plate and the review starts. */
+function tableServed(sid, food) {
+  if (S.coJoining?.sid === sid) S.coJoining.food = food; // still walking in: it is served when we sit down
+  if (S.co?.sid !== sid || S.co.host || S.mode !== 'wait') return;
+  const item = tableItem(S.restaurant, food); // checked against this restaurant's menu and kitchen
+  if (!item) return;
+  const { name } = S.co;
+  orderFood(item);
+  UI.toast(`${name} picked ${item.emoji} ${item.name}!`, 3200);
+}
+
+function tableRated(sid, id, stars) {
+  if (S.co?.sid !== sid || S.co.id !== id) return;
+  S.co.stars = stars;
+  friendAtTable()?.char.playEmote(stars >= 3 ? 'wow' : 'thumbs');
+  UI.toast(`${S.co.name} gave it ${'⭐'.repeat(stars)}!`, 3000);
+  if (S.mode !== 'after') return;
+  // we rated first and stayed to see this: now we can go
+  sfx.sparkle();
+  clearLater();
+  later(leaveRestaurant, 2200);
+}
+
+/** The table is over because the friend left it (or went offline). We carry on by ourselves. */
+function tableEnded(sid) {
+  if (S.coInvite?.sid === sid) dropInvite(); // the friend took their invite back
+  if (S.coJoining?.sid === sid) S.coJoining = null; // ...or left while we were walking in
+  if (S.co?.sid !== sid) return;
+  const waiting = S.mode === 'wait';
+  const co = unseatFriend();
+  if (!waiting) {
+    UI.toast(`👋 ${co.name} went back outside`, 2600);
+    if (S.mode === 'after') {
+      // we were only staying to see their stars
+      clearLater();
+      later(leaveRestaurant, 1200);
+    }
+    return;
+  }
+  // the host left before choosing: the table is ours now, so we move to the first chair and pick
+  UI.show('#screen-wait', false);
+  S.seat = 0;
+  seat(player, 0);
+  player.petSpot = PET_SPOTS[0];
+  seat(cohost, 1);
+  openMenu(S.restaurant);
+  UI.toast(`${co.name} had to go. You pick the food! 🍽️`, 3400);
+}
+
+/** The connection dropped: the server has ended every table and invite we were part of. */
+function lostTables() {
+  if (S.coAsk) askOver(S.coAsk, 'gone');
+  S.coAsks.forEach((ask) => clearTimeout(ask.timer));
+  S.coAsks = [];
+  dropInvite();
+  S.coJoining = null;
+  if (S.co) tableEnded(S.co.sid);
 }
 
 // ---------------------------------------------------------------- prizes
@@ -1202,15 +1697,20 @@ $('#reward-later').addEventListener('click', () => closeReward(false));
 function updateInterior(dt, t) {
   const portrait = innerHeight / innerWidth > 0.9;
   const onBelt = S.mode === 'belt';
+  const building = S.mode === 'build';
+  const plate = world.interior.plates[S.seat];
   camGoal.copy(onBelt ? BELT_CAM : world.interior.camPos);
-  if (portrait) camGoal.z += 2.4;
+  if (building) camGoal.copy(plate).add(BUILD_CAM_OFFSET); // right up close to the plate
+  else if (portrait) camGoal.z += 2.4;
   if (S.mode === 'order') camGoal.add(ORDER_CAM_OFFSET);
   // a little "hand-held camera" wobble
   camGoal.x += Math.sin(t * 0.7) * 0.04;
   camGoal.y += Math.sin(t * 1.1) * 0.03;
   camera.position.lerp(camGoal, damp(4, dt));
-  interiorLook.lerp(onBelt ? BELT_LOOK : world.interior.camTarget, damp(4, dt));
+  if (building) interiorLook.lerp(tmpV.copy(plate).add(BUILD_LOOK_OFFSET), damp(5, dt));
+  else interiorLook.lerp(onBelt ? BELT_LOOK : world.interior.camTarget, damp(4, dt));
   camera.lookAt(interiorLook);
+  if (building && S.food) S.food.rotation.y += dt * 0.5; // a slow turn, to show off every topping
   belt.raised = onBelt; // it sinks into the floor while you film, so nothing blocks the table
   belt.update(dt);
   updateGrab(dt);
@@ -1647,7 +2147,7 @@ function frame(now) {
   else if (S.mode === 'ride') updateRide(dt);
   else if (S.mode === 'dance') updateDance(dt);
   else if (S.mode === 'studio') updateStudio(dt);
-  else if (['order', 'belt', 'review', 'rate'].includes(S.mode)) updateInterior(dt, time);
+  else if (['order', 'belt', 'build', 'wait', 'review', 'rate', 'after'].includes(S.mode)) updateInterior(dt, time);
   else {
     controls.takeLook();
     player.speed = 0;
@@ -1701,7 +2201,30 @@ window.__t42 = {
   })),
   ringRadius: RING_RADIUS,
   worldRadius: WORLD_RADIUS,
-  item: () => S.item && { id: S.item.id, name: S.item.name, react: S.item.react || null, twist: S.item.twist || null },
+  item: () => S.item && { id: S.item.id, name: S.item.name, react: S.item.react || null, twist: S.item.twist || null, build: S.item.build || null },
+  /** Build-your-own: the choices so far, and what the model on the plate looks like (so a test can see toppings land on it). */
+  kitchen: () => {
+    if (!S.build) return null;
+    let triangles = 0;
+    let colors = 0; // every vertex color added up: changes whenever a topping or the base does
+    S.food?.traverse((o) => {
+      if (!o.isMesh) return;
+      triangles += o.geometry.index.count / 3;
+      for (const v of o.geometry.attributes.color?.array || []) colors += v;
+    });
+    return { build: JSON.parse(JSON.stringify(S.build)), name: buildItem(S.build).name, triangles, look: `${triangles}:${colors.toFixed(2)}` };
+  },
+  /** Friend as co-host: who shares the table, who sits in the other chair, and how much food is left on each plate. */
+  table: () => ({
+    seat: S.seat,
+    co: S.co && { name: S.co.name, host: S.co.host, stars: S.co.stars, emote: friendAtTable()?.char.emote || null, sitting: friendAtTable()?.char.pose === 'sit' },
+    otherChair: S.co ? 'friend' : cohost.root.visible ? 'grownup' : 'empty',
+    last: S.coLast && { ...S.coLast },
+    asking: S.coAsk && S.coAsk.name,
+    invite: S.coInvite && { from: remotes.get(S.coInvite.id)?.name || null, rid: S.coInvite.rid },
+    mine: S.food ? (S.food.visible ? S.food.scale.x : 0) : null,
+    theirs: S.cohostFood ? (S.cohostFood.visible ? S.cohostFood.scale.x : 0) : null,
+  }),
   playerEmote: () => player.emote,
   remoteEmotes: () => [...remotes.values()].map((e) => e.char.emote),
   height: () => S.y,

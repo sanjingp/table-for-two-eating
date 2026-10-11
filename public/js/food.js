@@ -15,7 +15,8 @@ const C = {
   waffle: '#f2b84b', glass: '#d7ecff', vanilla: '#fff3d6', strawberry: '#ff9ec4', fudge: '#4a2b1a', banana: '#ffe066',
 };
 
-// Mystery Plate re-tint: set only while one model is being built (see createFood).
+// Mystery Plate re-tint and build-your-own choices: set only while one model is being built (see createFood).
+let recipe = null;
 let tint = null;
 let tintN = 0;
 const tintColor = new THREE.Color();
@@ -86,6 +87,147 @@ function pizza(g, pepperoni) {
       else add(s, cyl(0.016, 0.016, 0.004, 6), '#ffeeb0', spot);
     }
     g.add(s);
+  }
+}
+
+// ---------------------------------------------------------------- build your own (toppings from BUILDS in data.js)
+const SAUCES = { tomato: '#d6402b', pesto: '#6fae3a', white: '#fff1cf' };
+/** A little group lying on the food at (x, y, z), turned by `ry`, for a topping made of a few parts. */
+function piece(parent, x, y, z, ry = 0) {
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  parent.add(p);
+  return p;
+}
+// One piece of each pizza topping, lying on the cheese. `n` counts the pieces, so they do not all face the same way.
+const PIZZA_TOPS = {
+  pepperoni: (s, x, y, z) => add(s, cyl(0.028, 0.028, 0.006, 8), C.pepperoni, [x, y, z]),
+  mushroom(s, x, y, z, n) {
+    const p = piece(s, x, y, z, n * 1.9);
+    add(p, cyl(0.026, 0.026, 0.008, 8, 0, Math.PI), '#e9dcc3'); // a sliced cap…
+    add(p, box(0.02, 0.008, 0.012), '#f7efdf', [-0.009, 0, 0]); // …and its stem
+  },
+  olive: (s, x, y, z) => add(s, torus(0.014, 0.007, 5, 10), '#2b2b33', [x, y + 0.004, z], [Math.PI / 2, 0, 0]),
+  pineapple: (s, x, y, z, n) => add(s, cyl(0.03, 0.03, 0.02, 3), '#fff29a', [x, y + 0.006, z], [0.12, n * 1.3, 0]),
+  corn(s, x, y, z, n) {
+    const p = piece(s, x, y, z, n * 2.1);
+    for (const [dx, dz] of [[-0.012, 0], [0.01, 0.008], [0.004, -0.013]]) add(p, sphere(0.009, 5, 4), '#ffe066', [dx, 0.004, dz]);
+  },
+  chili(s, x, y, z, n) {
+    const p = piece(s, x, y, z, n * 2.4);
+    add(p, cone(0.009, 0.052, 6), '#e03131', [0, 0.006, 0], [Math.PI / 2, 0, 0]);
+    add(p, cyl(0.004, 0.004, 0.014, 5), '#3fa34d', [0, 0.006, -0.03], [Math.PI / 2, 0, 0]);
+  },
+  basil: (s, x, y, z, n) => add(s, sphere(0.028, 8, 5), '#3fa34d', [x, y + 0.002, z], [0, n * 1.7, 0], [1, 0.1, 0.55]),
+  cheese: (s, x, y, z) => add(s, sphere(0.032, 8, 5), '#fff6d8', [x, y, z], [0, 0, 0], [1, 0.22, 1]),
+};
+
+/** A pie like pizza() with a ring of sauce showing, and the chosen toppings dealt around the slices. */
+function myPizza(g, { b: sauce, t: tops }) {
+  const N = 6;
+  const arc = (Math.PI * 2) / N;
+  let n = 0;
+  for (let i = 0; i < N; i++) {
+    const s = new THREE.Group();
+    s.rotation.y = (i - 0.5) * arc;
+    if (i === 0) {
+      s.position.set(0, 0.012, 0.06);
+      s.rotation.x = -0.22;
+    }
+    add(s, cyl(0.27, 0.27, 0.022, 4, 0.03, arc - 0.06), C.crust, [0, 0.011, 0]);
+    add(s, cyl(0.25, 0.25, 0.006, 4, 0.045, arc - 0.09), SAUCES[sauce] || SAUCES.tomato, [0, 0.0245, 0]);
+    add(s, cyl(0.226, 0.226, 0.008, 4, 0.07, arc - 0.14), C.mozz, [0, 0.028, 0]);
+    for (const [rr, f] of [[0.085, 0.5], [0.15, 0.27], [0.15, 0.73], [0.2, 0.5]]) {
+      const x = Math.sin(arc * f) * rr;
+      const z = Math.cos(arc * f) * rr;
+      if (tops.length) PIZZA_TOPS[tops[n % tops.length]](s, x, 0.034, z, n);
+      else add(s, cyl(0.016, 0.016, 0.004, 6), '#ffeeb0', [x, 0.033, z]); // plain: just bubbly cheese
+      n++;
+    }
+    g.add(s);
+  }
+}
+
+const SCOOPS = { vanilla: C.vanilla, chocolate: '#7b4a2a', strawberry: C.strawberry, mint: '#a9e8c4' };
+const GUMMY_COLORS = ['#ff4d6d', '#57cc2e', '#ffd23f'];
+
+/** Three scoops in a glass like the menu's sundae, in the chosen flavor, with the chosen toppings piled on. */
+function mySundae(g, { b: flavor, t: tops }) {
+  const has = (id) => tops.includes(id);
+  add(g, cyl(0.06, 0.075, 0.012, 14), C.glass, [0, 0.006, 0]);
+  add(g, cyl(0.018, 0.018, 0.05, 8), C.glass, [0, 0.035, 0]);
+  add(g, cyl(0.135, 0.04, 0.09, 16), C.glass, [0, 0.105, 0]);
+  const R = 0.062;
+  const scoops = [[-0.055, 0.035], [0.055, 0.035], [0, -0.055]];
+  const out = scoops.map(([x, z]) => Math.atan2(z, x)); // the way each scoop faces, away from the middle
+  /** A spot on scoop i: `th` around it, `ph` down from its top. */
+  const on = (i, th, ph, r = R) => [scoops[i][0] + Math.sin(ph) * Math.cos(th) * r, 0.165 + Math.cos(ph) * r, scoops[i][1] + Math.sin(ph) * Math.sin(th) * r];
+  const ice = SCOOPS[flavor] || SCOOPS.vanilla;
+  scoops.forEach(([x, z]) => add(g, sphere(R, 12, 8), ice, [x, 0.165, z]));
+  add(g, sphere(0.05, 10, 8), ice, [0, 0.182, 0]); // fills the dip in the middle
+  if (flavor === 'mint') {
+    scoops.forEach((_, i) => {
+      for (let k = 0; k < 5; k++) add(g, sphere(0.008, 5, 4), C.choc, on(i, out[i] + (k - 2) * 0.75, 0.55 + (k % 2) * 0.45, R + 0.001));
+    });
+  }
+
+  // sauces pool on top and run down the scoops
+  let top = 0.226;
+  const sauce = (color, r) => {
+    add(g, sphere(r, 12, 8), color, [0, top - 0.008, 0], [0, 0, 0], [1, 0.42, 1]);
+    scoops.forEach((_, i) => add(g, sphere(0.02, 8, 6), color, on(i, out[i] + (r > 0.06 ? 0.5 : -0.5), 0.72, R - 0.004), [0, 0, 0], [0.8, 1.5, 0.8]));
+    top += r * 0.3;
+  };
+  if (has('fudge')) sauce(C.fudge, 0.072);
+  if (has('caramel')) sauce('#e0a030', 0.056);
+  if (has('sprinkles')) {
+    const cols = ['#ff5fa2', '#3a86ff', '#ffd23f', '#7ae582', '#ffffff'];
+    scoops.forEach((_, i) => {
+      for (let k = 0; k < 7; k++) add(g, box(0.017, 0.006, 0.006), cols[(i + k) % cols.length], on(i, out[i] + (k - 3) * 0.62, 0.42 + (k % 3) * 0.26, R + 0.003), [k, k * 1.7 + i, 0]);
+    });
+  }
+  if (has('banana')) {
+    scoops.forEach((_, i) => {
+      const a = out[i] - 0.95;
+      add(g, cyl(0.032, 0.032, 0.012, 10), '#fff0a8', on(i, a, 1.05, R + 0.004), [0, -a, -1.05]); // coins leaning on the scoops
+    });
+  }
+  if (has('cookie')) {
+    scoops.forEach((_, i) => {
+      const a = out[i] + 0.95;
+      const c = piece(g, ...on(i, a, 1.0, R + 0.006), -a);
+      c.rotation.z = -1.0;
+      add(c, cyl(0.03, 0.03, 0.012, 10), C.cookie);
+      for (const [dx, dz] of [[0.012, 0.006], [-0.01, -0.012], [-0.004, 0.014]]) add(c, sphere(0.006, 5, 4), C.choc, [dx, 0.007, dz]);
+    });
+  }
+  if (has('berry')) {
+    for (let i = 0; i < 3; i++) {
+      const a = (out[i] + out[(i + 1) % 3]) / 2 + (i === 2 ? Math.PI : 0); // in the gaps between the scoops
+      strawberry(g, Math.cos(a) * 0.098, 0.2, Math.sin(a) * 0.098, 1.05);
+    }
+  }
+  if (has('gummy')) {
+    scoops.forEach((_, i) => {
+      const bear = piece(g, ...on(i, out[i], 0.38, R + 0.012), -out[i] + Math.PI / 2);
+      const col = GUMMY_COLORS[i % GUMMY_COLORS.length];
+      add(bear, sphere(0.016, 8, 6), col, [0, 0, 0], [0, 0, 0], [1, 1.2, 0.85]);
+      add(bear, sphere(0.012, 8, 6), col, [0, 0.024, 0]);
+      for (const s of [-1, 1]) {
+        add(bear, sphere(0.005, 5, 4), col, [s * 0.009, 0.035, 0]); // ears
+        add(bear, sphere(0.006, 5, 4), col, [s * 0.015, 0.004, 0.006]); // paws
+      }
+    });
+  }
+  if (has('cream')) {
+    add(g, sphere(0.04, 10, 8), C.cream, [0, top + 0.012, 0]);
+    add(g, cone(0.03, 0.04, 8), C.cream, [0, top + 0.052, 0]);
+    top += 0.066;
+  }
+  if (has('cherry')) {
+    add(g, sphere(0.022, 8, 6), C.red, [0, top + 0.014, 0]);
+    add(g, cyl(0.003, 0.003, 0.034, 4), '#5c3d2e', [0.006, top + 0.046, 0], [0, 0, -0.35]);
   }
 }
 
@@ -337,6 +479,9 @@ const BUILDERS = {
   pepperonipizza(g) {
     pizza(g, true);
   },
+  mypizza(g) {
+    myPizza(g, recipe && recipe.k === 'pizza' ? recipe : { b: 'tomato', t: [] });
+  },
   garlicknots(g) {
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + 0.4;
@@ -435,6 +580,9 @@ const BUILDERS = {
     add(g, cone(0.03, 0.04, 8), C.cream, [0, 0.275, 0]);
     add(g, sphere(0.022, 8, 6), C.red, [0, 0.305, 0]);
     scatter(g, 8, box(0.015, 0.005, 0.005), ['#ff5fa2', '#3a86ff', '#ffd23f', '#7ae582'], 0.06, 0.212, 47);
+  },
+  mysundae(g) {
+    mySundae(g, recipe && recipe.k === 'sundae' ? recipe : { b: 'vanilla', t: [] });
   },
   bananasplit(g) {
     add(g, cyl(0.12, 0.08, 0.05, 16), C.glass, [0, 0.025, 0], [0, 0, 0], [1.9, 1, 0.95]);
@@ -810,19 +958,25 @@ const BUILDERS = {
 
 export const hasFoodModel = (id) => Object.prototype.hasOwnProperty.call(BUILDERS, id);
 
+/** Does build-your-own topping `id` of kitchen `kind` have a 3D piece? (the sundae's are all inside mySundae) */
+export const hasToppingModel = (kind, id) => (kind === 'pizza' ? Object.prototype.hasOwnProperty.call(PIZZA_TOPS, id) : kind === 'sundae');
+
 /**
  * Build a food model by menu item id. `twistTint` (a hex color or 'rainbow') re-tints it
- * for a Mystery Plate. Meshes are merged (colors baked into the vertices) to keep draw calls low on iPad.
+ * for a Mystery Plate; `build` ({ k, b, t }, already checked) is what goes on a build-your-own food.
+ * Meshes are merged (colors baked into the vertices) to keep draw calls low on iPad.
  */
-export function createFood(id, accent, twistTint = null) {
+export function createFood(id, accent, twistTint = null, build = null) {
   const g = new THREE.Group();
   tint = twistTint;
   tintN = 0;
+  recipe = build;
   if (tint && tint !== 'rainbow') tintColor.set(tint);
   try {
     (hasFoodModel(id) ? BUILDERS[id] : BUILDERS.cookie)(g, accent);
   } finally {
     tint = null;
+    recipe = null;
   }
   mergeStatic(g, { bake: true }); // plain colors become one mesh: a draw call or two per food
   return g;

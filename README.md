@@ -16,6 +16,8 @@ Walk around **Yummy Town** and visit 20 restaurants. Thirteen are made-up places
 - 🎯 **Reviewer missions.** Three picture challenges at a time ("Find something crunchy", "Get a brain freeze"). Foods that count get a 🎯 on the menu, and finished missions add up to a reviewer rank.
 - 💥 **Comic camera.** Comic words burst onto the viewfinder as you film (CRUNCH! SLURP! BRRR!). Pick a preset frame and show title; they are saved with the review.
 - 💃 **Dance party.** Step onto the dance floor by the fountain and tap the pictured move on the beat. Friends see you dance; your score is your own.
+- 🍕 **Build your own.** Slice Squad and Sundae Funday each have a kitchen: tap preset chips to pick a sauce or ice cream and up to four toppings, watch them land on the 3D food, then review your creation ("My Pesto Pepperoni & Chili Pizza").
+- 👯 **Friend as co-host.** Inside a restaurant, tap "Invite a co-host" and pick a friend who is in town. They get a card with two big buttons, yes or no. If they say yes they sit in the co-host chair, get the same food as you, and you see each other's bites and reactions. Each of you gives your own stars.
 
 - 🎨 **Character creator.** Pick a fun preset name, 7 hair styles, any hair or eye color, and a realistic skin-tone slider.
 - 👗 **Closet.** Tops, jackets, bottoms and shoes (yes, light-up ones ✨), each in many colors or any color you like.
@@ -57,6 +59,8 @@ Tips:
 | Jump / Go in / Slide / Dance | Big yellow button | Space (E / Enter at a door, the slide or the dance floor) |
 | Grab a sushi plate | Tap the plate | Click the plate |
 | Emotes & sayings, start a race | 😊 Emote button | — |
+| Build a pizza or sundae | Tap the topping chips | Click the chips |
+| Invite a co-host | 👯 button on the menu (or the belt) | — |
 | Scooter on / off | 🛴 Scooter button | — |
 | Hunt and missions pages | 🔍 and 🎯 buttons | — |
 
@@ -91,7 +95,10 @@ This runs `tests/e2e.mjs` with Playwright and headless Chromium (it installs Chr
 14. collects all six hidden ingredients (checking the other page's hunt is untouched) and checks the silly recipe sticker;
 15. checks the mission rules and pages, the 🎯 menu tags, the comic words, frames and titles (saved with the review), and that odd saved data falls back to defaults;
 16. plays a whole dance party round and checks every move reached the other page without tripping the emote rate limit;
-17. sends bad messages straight to the server (chat, unknown fields, bad names, unknown hats and pets, sky-high heights, >4 KB, 9 players) and checks they're rejected, and checks the race rules there too: the server picks the door, there are no false starts, one race at a time, and a rate limit on starting them.
+17. builds a pizza and a sundae from the topping chips (checking each chip changes the 3D food, the topping limit, the name made of preset words, and that the creation is saved and shown in the scrapbook);
+18. has one page invite the other as co-host: the invite card, the seats, the shared food, bites and reactions seen across the table, a separate rating saved on each page, then leaving, saying no, being busy, and the friend's page reloading in the middle of a review;
+19. sends bad messages straight to the server (chat, unknown fields, bad names, unknown hats and pets, sky-high heights, >4 KB, 9 players) and checks they're rejected, and checks the race rules there too: the server picks the door, there are no false starts, one race at a time, and a rate limit on starting them;
+20. checks the server's rules for a table for two the same way: who may invite whom and from where, one invite at a time, "no" is respected for a while, only the host chooses the food and only from that restaurant's menu or kitchen, bites and stars reach the other player at the table and nobody else, and the table ends when either player walks out, disconnects, or the invite times out.
 
 ## Updating
 

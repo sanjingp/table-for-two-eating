@@ -3,8 +3,9 @@ import { h, $, pick } from './util.js';
 import { HAIR_STYLES, HATS, PETS, NAME_ADJ, NAME_NOUN, SKIN_STOPS, LINES, RACE_LINE, RESTAURANT_IDS } from './schema.js';
 import {
   HAIR_STYLE_INFO, HAIR_COLORS, EYE_COLORS, CLOTH_COLORS, CLOTHES, EMOTE_INFO, MOODS, RESTAURANT_BY_ID, FOOD_REACTIONS, HAT_INFO, BADGES,
-  PET_INFO, INGREDIENTS, HUNT_PLACES, VF_FRAMES, VF_TITLES,
+  PET_INFO, INGREDIENTS, HUNT_PLACES, VF_FRAMES, VF_TITLES, BUILDS,
 } from './data.js';
+import { buildParts } from './build.js';
 import { sfx } from './audio.js';
 
 let toastTimer = 0;
@@ -227,15 +228,81 @@ export function buildEmotePanel(emotes, lines, onEmote, onSay) {
 }
 
 // ------------------------------------------------------------------ order
-/** isGoal(item) marks the foods that would move one of the reviewer's missions along. */
-export function buildOrder(r, onPick, isGoal = () => false) {
+/**
+ * isGoal(item) marks the foods that would move one of the reviewer's missions along.
+ * A restaurant with a kitchen (r.build) gets one more, golden tile: onBuild opens the build-your-own screen.
+ */
+export function buildOrder(r, onPick, isGoal = () => false, onBuild = null) {
   $('#order-rest').textContent = r.name;
-  $('#order-menu').replaceChildren(...r.menu.map((item) => h('button.menu-item', { dataset: { id: item.id }, onclick: () => onPick(item) },
+  const tile = (item, cls, onclick) => h(`button.menu-item${cls}`, { dataset: { id: item.id }, onclick },
     isGoal(item) && h('span.mi-goal', { 'aria-label': 'Counts for a mission' }, '🎯'),
     item.react && h('span.mi-tag', { 'aria-label': FOOD_REACTIONS[item.react].label }, FOOD_REACTIONS[item.react].tag),
     h('span.mi-emoji', {}, item.emoji),
     h('span.mi-name', {}, item.name),
-    h('span.mi-blurb', {}, item.blurb))));
+    h('span.mi-blurb', {}, item.blurb));
+  const kitchen = r.build && onBuild ? BUILDS[r.build] : null;
+  const tiles = r.menu.map((item) => tile(item, '', () => onPick(item)));
+  if (kitchen) tiles.push(tile({ id: kitchen.fid, name: kitchen.title, emoji: kitchen.emoji, blurb: kitchen.blurb, react: kitchen.react }, '.build', onBuild));
+  $('#order-menu').replaceChildren(...tiles);
+}
+
+// ------------------------------------------------------------------ build your own
+const chip = (c, onTap) => {
+  const b = h('button.top-chip', { dataset: { id: c.id }, 'aria-label': c.label, 'aria-pressed': 'false' }, h('span.tc-emoji', {}, c.emoji), c.label);
+  b.addEventListener('click', () => onTap(c.id, b));
+  return b;
+};
+/** The kitchen's chips for build kind `kind`: one base to pick, toppings to switch on and off. */
+export function buildKitchen(kind, { onBase, onTopping }) {
+  const def = BUILDS[kind];
+  $('#build-title').textContent = `${def.emoji} ${def.title}!`;
+  $('#build-base-label').textContent = def.baseLabel;
+  $('#build-bases').replaceChildren(...def.bases.map((b) => chip(b, onBase)));
+  $('#build-toppings').replaceChildren(...def.toppings.map((t) => chip(t, onTopping)));
+}
+/** Light up the chips that are part of `build`, and count the toppings. */
+export function syncKitchen(build) {
+  const { def } = buildParts(build);
+  for (const b of $('#build-bases').children) {
+    b.classList.toggle('on', b.dataset.id === build.b);
+    b.setAttribute('aria-pressed', String(b.dataset.id === build.b));
+  }
+  for (const b of $('#build-toppings').children) {
+    b.classList.toggle('on', build.t.includes(b.dataset.id));
+    b.setAttribute('aria-pressed', String(build.t.includes(b.dataset.id)));
+  }
+  const label = $('#build-count');
+  label.textContent = `Toppings ${build.t.length} of ${def.max}`;
+  label.classList.toggle('full', build.t.length >= def.max);
+}
+/** A little shake for a chip that cannot be switched on (the plate is full). */
+export function nope(el) {
+  el.classList.remove('nope');
+  void el.offsetWidth;
+  el.classList.add('nope');
+}
+
+// ------------------------------------------------------------------ friend as co-host
+/** friends = [{ id, name, color }]: everyone else in town, by their preset fun name. */
+export function buildFriendPicker(friends, onPick) {
+  $('#cohost-sub').textContent = friends.length ? 'Who should sit at your table?' : 'Nobody else is in town right now.';
+  $('#cohost-friends').replaceChildren(...friends.map((f) => h('button.btn.white.friend-btn', { dataset: { id: f.id }, onclick: () => onPick(f.id) },
+    h('span.fb-dot', { style: { background: f.color } }), f.name)));
+  show('#cohost-friends', true);
+  show('#cohost-waiting', false);
+  $('#cohost-close').textContent = 'Close';
+}
+/** The picker after a friend was asked: nothing to tap but "never mind". */
+export function friendPickerWaiting(name) {
+  $('#cohost-sub').textContent = 'They can say yes or no.';
+  $('#cohost-waiting-text').textContent = `Asking ${name}…`;
+  show('#cohost-friends', false);
+  show('#cohost-waiting', true);
+  $('#cohost-close').textContent = 'Never mind';
+}
+export function buildWaitEmotes(emotes, onEmote) {
+  $('#wait-emotes').replaceChildren(...emotes.map((e) => h('button.wait-emote', { onclick: () => onEmote(e), 'aria-label': EMOTE_INFO[e].label },
+    EMOTE_INFO[e].emoji, h('small', {}, EMOTE_INFO[e].label))));
 }
 
 // ------------------------------------------------------------------ review controls
@@ -437,6 +504,19 @@ function decoChip(rv) {
   return h('span.deco', {}, `${fancy ? frame.icon : '🎬'}${rv.title ? ` ${VF_TITLES[rv.title]}` : ''}`);
 }
 
+/** What went on a build-your-own food, and the friend who co-hosted the review. */
+function madeChip(rv) {
+  if (!rv.build) return null;
+  const { base, toppings } = buildParts(rv.build);
+  return h('span.deco.made', {}, [base, ...toppings].map((c) => c.emoji).join(''));
+}
+const friendChip = (rv) => (rv.co ? h('span.deco.with', {}, `👯 ${rv.co}`) : null);
+/** A second line under a review for its little chips: toppings, co-host, camera look. */
+function extras(rv) {
+  const chips = [madeChip(rv), friendChip(rv), decoChip(rv)].filter(Boolean);
+  return chips.length ? h('div.extras', {}, chips) : null;
+}
+
 export function buildBook(stats, progress, quests, tab = 'passport') {
   buildPassport(progress);
   buildMissions(quests.cards, quests.rank, quests.done);
@@ -456,7 +536,7 @@ export function buildBook(stats, progress, quests, tab = 'passport') {
       h('span', {}, r.name), h('span.avg', {}, s.count ? starStr(Math.round(s.avg)) : ''));
     const body = s.count
       ? h('ul', {}, s.list.slice(-6).reverse().map((rv) => h('li', {},
-        h('span.fe', {}, rv.emoji), h('span.fn', {}, rv.food), decoChip(rv), h('span.st', {}, starStr(rv.stars)), h('span', {}, rv.mood))))
+        h('span.fe', {}, rv.emoji), h('span.fn', {}, rv.food), h('span.st', {}, starStr(rv.stars)), h('span', {}, rv.mood), extras(rv))))
       : h('div.empty', {}, 'Not visited yet! 🚪');
     const page = h('div.book-page', {}, header, body);
     page.style.setProperty('--tilt', tilts[i % tilts.length]); // custom properties need setProperty

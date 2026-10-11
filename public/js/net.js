@@ -1,8 +1,9 @@
 // WebSocket client. Optional: if the server can't be reached the game keeps working solo.
-import { sanitizeAppearance, ANIMS, EMOTES, LINES, RACE, RESTAURANT_IDS, isValidRoom, WORLD_LIMIT, HEIGHT_LIMIT } from './schema.js';
+import {
+  sanitizeAppearance, ANIMS, EMOTES, LINES, RACE, RESTAURANT_IDS, TABLE_WHY, isValidRoom, isId, WORLD_LIMIT, HEIGHT_LIMIT,
+} from './schema.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,16}$/.test(v);
 
 function wsUrl(room) {
   const override = typeof window.T42_WS_URL === 'string' && window.T42_WS_URL.trim();
@@ -19,7 +20,9 @@ function wsUrl(room) {
 export class Net {
   constructor(room, handlers) {
     this.room = isValidRoom(room) ? room : null;
-    this.h = handlers; // { onStatus, onWelcome, onJoin, onLeave, onState, onEmote, onSay, onAppearance, onRace, onWin }
+    // { onStatus, onReset, onWelcome, onJoin, onLeave, onState, onEmote, onSay, onAppearance, onRace, onWin,
+    //   onTableInvite, onTableAsked, onTableNo, onTableJoin, onTableFood, onTableBite, onTableDone, onTableEnd }
+    this.h = handlers;
     this.ws = null;
     this.status = 'offline';
     this.id = null;
@@ -119,6 +122,31 @@ export class Net {
       case 'win': // the race is over; no id means time ran out
         if (m.id === undefined || isId(m.id)) this.h.onWin?.(m.id ?? null);
         break;
+      // ---- table for two (friend as co-host): `s` is the session id the server made
+      case 'coinv':
+        if (!isId(m.s)) break;
+        if (isId(m.id) && RESTAURANT_IDS.includes(m.r)) this.h.onTableInvite?.(m.s, m.id, m.r); // a friend asks us
+        else if (isId(m.to)) this.h.onTableAsked?.(m.s, m.to); // our own invite is on its way
+        break;
+      case 'cono': // our invite did not work out: refused at once (no `s`), or over after the server had made session `s`
+        if (isId(m.id) && TABLE_WHY.includes(m.why) && (m.s === undefined || isId(m.s))) this.h.onTableNo?.(m.id, m.why, m.s ?? null);
+        break;
+      case 'cojoin': // seats: [host id, co-host id], and we are one of them
+        if (isId(m.s) && RESTAURANT_IDS.includes(m.r) && Array.isArray(m.seats) && m.seats.length === 2 && m.seats.every(isId)
+          && m.seats[0] !== m.seats[1] && m.seats.includes(this.id)) this.h.onTableJoin?.(m.s, m.r, m.seats);
+        break;
+      case 'cofood': // what the host chose; main.js checks it against the restaurant's menu (tableItem)
+        if (isId(m.s)) this.h.onTableFood?.(m.s, { f: m.f, my: m.my, tw: m.tw, b: m.b });
+        break;
+      case 'cobite':
+        if (isId(m.s) && isId(m.id)) this.h.onTableBite?.(m.s, m.id);
+        break;
+      case 'codone':
+        if (isId(m.s) && isId(m.id) && Number.isInteger(m.n) && m.n >= 1 && m.n <= 5) this.h.onTableDone?.(m.s, m.id, m.n);
+        break;
+      case 'coend':
+        if (isId(m.s) && isId(m.id)) this.h.onTableEnd?.(m.s, m.id);
+        break;
       case 'full':
         this.setStatus('full');
         break;
@@ -168,5 +196,30 @@ export class Net {
   sendAppearance(app) {
     this.app = app;
     if (this.status === 'online') this.send({ t: 'app', app });
+  }
+
+  // ---- table for two. `s` is always the session id the server gave us.
+  /** Ask friend `to` to co-host at restaurant `r`. Returns false when playing solo. */
+  sendTableInvite(to, r) {
+    if (this.status !== 'online') return false;
+    this.send({ t: 'coinv', to, r });
+    return true;
+  }
+  /** a: 'yes', 'no' or 'busy' (see TABLE_ANSWERS). */
+  sendTableAnswer(s, a) {
+    if (this.status === 'online') this.send({ t: 'coans', s, a });
+  }
+  /** food: { f, my, tw } or { b } (see tableFood in build.js). */
+  sendTableFood(s, food) {
+    if (this.status === 'online') this.send({ t: 'cofood', s, ...food });
+  }
+  sendTableBite(s) {
+    if (this.status === 'online') this.send({ t: 'cobite', s });
+  }
+  sendTableDone(s, stars) {
+    if (this.status === 'online') this.send({ t: 'codone', s, n: stars });
+  }
+  sendTableLeave(s) {
+    if (this.status === 'online') this.send({ t: 'coleave', s });
   }
 }

@@ -2,19 +2,22 @@
 // touch pages in the same room and checks loading, multiplayer, the joystick,
 // the town layout, the playground (bounce pads + slide), restaurant visits, food
 // reactions, the sushi conveyor belt, the Mystery Plate, the sticker passport with its hats,
-// and Phase 3: scooter, pets, races, the ingredient hunt, missions, the comic camera and the dance party.
+// Phase 3: scooter, pets, races, the ingredient hunt, missions, the comic camera and the dance party,
+// and Phase 4: build-your-own pizza and sundae, and a friend as co-host (a table for two).
 import { spawn, execSync } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import {
-  RESTAURANT_IDS, WORLD_LIMIT, HEIGHT_LIMIT, EMOTES, HATS, PETS, LINES, RACE, RACE_LINE, EMOTE_LIMIT, raceDoorSpot, pickRaceTarget,
+  RESTAURANT_IDS, WORLD_LIMIT, HEIGHT_LIMIT, EMOTES, HATS, PETS, LINES, RACE, RACE_LINE, EMOTE_LIMIT, TABLE, raceDoorSpot, pickRaceTarget,
+  sanitizeBuild, sanitizeTableFood,
 } from '../public/js/schema.js';
 import {
   RESTAURANTS, MYSTERY_TWISTS, FOOD_REACTIONS, BADGES, HAT_INFO, PET_INFO, MISSIONS, FOOD_TAGS, INGREDIENTS, RECIPE_WORDS, RECIPE_DISHES,
-  VF_FRAMES, VF_TITLES, COMIC_WORDS, DANCE_MOVES,
+  VF_FRAMES, VF_TITLES, COMIC_WORDS, DANCE_MOVES, BUILDS, BUILD_LOADED, WAIT_EMOTES,
 } from '../public/js/data.js';
+import { buildItem, buildName, defaultBuild, toggleTopping, randomBuild, tableFood, tableItem, mysteryItem } from '../public/js/build.js';
 import { passportProgress } from '../public/js/passport.js';
 import { huntLayout, recipeFor, repairHunt, HUNT_SIZE } from '../public/js/hunt.js';
 import { newMissions, applyReview, menuGoal, repairMissions } from '../public/js/missions.js';
@@ -108,6 +111,22 @@ async function serverChecks(port) {
     ws.on('unexpected-response', (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
   });
   const app = { name: 'Happy Taco', skin: 0.5, hair: '#112233', hairStyle: 'bun', eyes: '#3a7bd5', top: 'hoodie', topColor: '#ff8fc7', jacket: 'none', jacketColor: '#5b8bd6', bottom: 'pants', bottomColor: '#222222', shoes: 'boots', shoesColor: '#7b4a2a' };
+  const say = (ws, obj) => ws.send(JSON.stringify(obj));
+  const idOf = (ws) => ws.msgs.find((m) => m.t === 'welcome').id;
+  /** Everything about tables for two that socket `ws` was sent. */
+  const co = (ws, t) => ws.msgs.filter((m) => (t ? m.t === t : /^co/.test(m.t)));
+  const keys = (m) => Object.keys(m || {}).sort().join();
+  const inside = (ws, rid) => say(ws, { t: 'st', ...raceDoorSpot(rid), ry: 0, an: 'review' }); // filming at that restaurant's door
+
+  // an invite nobody answers (checked at the end: it takes a while to time out)
+  const lonely = await open('table-check-2');
+  const shy = await open('table-check-2');
+  say(lonely, { t: 'hello', app });
+  say(shy, { t: 'hello', app: { ...app, name: 'Cozy Muffin' } });
+  await sleep(300);
+  inside(lonely, 'pasta');
+  say(lonely, { t: 'coinv', to: idOf(shy), r: 'pasta' });
+  const askedAt = Date.now();
 
   // bad room code is rejected at upgrade time
   try {
@@ -228,6 +247,188 @@ async function serverChecks(port) {
   c.close();
   d.close();
   late.close();
+
+  // ---- tables for two (friend as co-host): the server runs the session
+  console.log('\n👯 Server rules for a table for two');
+  const [h, g, x] = [await open('table-check-1'), await open('table-check-1'), await open('table-check-1')];
+  say(h, { t: 'hello', app });
+  say(g, { t: 'hello', app: { ...app, name: 'Silly Pickle' } });
+  say(x, { t: 'hello', app: { ...app, name: 'Jolly Waffle' } });
+  await sleep(300);
+  const [hId, gId, xId] = [idOf(h), idOf(g), idOf(x)];
+  inside(h, 'slice');
+  say(g, { t: 'st', x: 0, z: 7, ry: 0, an: 'idle' });
+  say(x, { t: 'st', x: 0, z: 9, ry: 0, an: 'walk' });
+  say(h, { t: 'coinv', to: gId, r: 'nowhere' }); // not a restaurant
+  say(h, { t: 'coinv', to: '<script>', r: 'slice' }); // not an id
+  say(h, { t: 'coinv', to: hId, r: 'slice' }); // yourself
+  say(h, { t: 'coinv', to: 'AAAAAAAA', r: 'slice' }); // nobody
+  say(h, { t: 'coinv', to: gId, r: 'jj' }); // a restaurant the host is not in
+  say(x, { t: 'coinv', to: gId, r: 'slice' }); // from someone out in the plaza
+  await sleep(300);
+  check(co(g).length === 0 && co(h, 'cono').map((m) => m.why).join() === 'gone,gone,wait' && co(x, 'cono').map((m) => m.why).join() === 'wait',
+    'an invite must name a real friend and the restaurant the host is filming in: anything else reaches nobody');
+  say(h, { t: 'coinv', to: gId, r: 'slice', text: 'come here', s: 'mine' });
+  await sleep(300);
+  const invite = co(g, 'coinv')[0];
+  const sid = invite?.s;
+  check(invite && invite.id === hId && invite.r === 'slice' && keys(invite) === 'id,r,s,t' && /^[A-Za-z0-9_-]{6,16}$/.test(sid) && sid !== 'mine',
+    'a good invite reaches the friend with a session id the server made, the host and the restaurant (nothing typed)');
+  check(keys(co(h, 'coinv')[0]) === 's,t,to' && co(h, 'coinv')[0].s === sid && co(x).length === 1, 'the host is told the session id; nobody else in the room hears about it');
+  inside(x, 'jj');
+  await sleep(100);
+  say(x, { t: 'coinv', to: gId, r: 'jj' }); // g already has an invite to answer
+  say(h, { t: 'coinv', to: xId, r: 'slice' }); // h is already waiting for g
+  say(x, { t: 'coans', s: sid, a: 'yes' }); // not x's invite
+  say(g, { t: 'coans', s: 'nope1234', a: 'yes' }); // not this invite
+  say(g, { t: 'coans', s: sid, a: 'maybe' }); // not an answer
+  await sleep(300);
+  check(co(x, 'cono').pop().why === 'busy' && co(h, 'cono').pop().why === 'wait' && co(h, 'cojoin').length === 0 && co(g).length === 1,
+    'one invite at a time: a friend who is being asked is busy, and only that friend can answer, with the right id');
+  say(g, { t: 'coans', s: sid, a: 'no', why: 'go away' });
+  await sleep(300);
+  const no = co(h, 'cono').pop();
+  check(no.why === 'no' && no.id === gId && no.s === sid && keys(no) === 'id,s,t,why', 'saying no tells the host so, and nothing more');
+  say(h, { t: 'coinv', to: gId, r: 'slice' });
+  await sleep(300);
+  check(co(h, 'cono').pop().why === 'no' && co(g, 'coinv').length === 1, `no means no: the same friend cannot be asked again for ${TABLE.rest} s`);
+  say(x, { t: 'st', x: 0, z: 9, ry: 0, an: 'idle' }); // x walks back out of Jimmy John's
+  await sleep(100);
+  say(h, { t: 'coinv', to: xId, r: 'slice' });
+  await sleep(300);
+  const sid2 = co(x, 'coinv')[0]?.s;
+  say(x, { t: 'coans', s: sid2, a: 'yes' });
+  await sleep(300);
+  const seated = co(x, 'cojoin')[0];
+  check(seated && sid2 !== sid && seated.s === sid2 && seated.r === 'slice' && seated.seats.join() === `${hId},${xId}` && keys(seated) === 'r,s,seats,t'
+    && JSON.stringify(co(h, 'cojoin')[0]) === JSON.stringify(seated) && co(g, 'cojoin').length === 0,
+    'saying yes seats the two of them (host first, friend in the co-host chair) under a new session id');
+  // the food: only the host chooses, once, from that restaurant's menu or kitchen
+  say(x, { t: 'cofood', s: sid2, f: 'cheesepizza' }); // the co-host does not choose
+  say(g, { t: 'cofood', s: sid2, f: 'cheesepizza' }); // nor does somebody else
+  say(h, { t: 'cofood', s: sid, f: 'cheesepizza' }); // an old session id
+  say(h, { t: 'cofood', s: sid2, f: 'sundae' }); // not on this menu
+  say(h, { t: 'cofood', s: sid2, f: 'cheesepizza', tw: 'pickle' }); // a twist without a Mystery Plate
+  say(h, { t: 'cofood', s: sid2, f: 'cheesepizza', my: true, tw: 'glitter' }); // not a twist
+  say(h, { t: 'cofood', s: sid2, b: { k: 'sundae', b: 'mint', t: [] } }); // another restaurant's kitchen
+  say(h, { t: 'cofood', s: sid2, b: { k: 'pizza', b: 'tomato', t: ['olive', 'glitter'] } }); // not a topping
+  say(h, { t: 'cofood', s: sid2, b: { k: 'pizza', b: 'tomato', t: ['olive', 'corn', 'basil', 'cheese', 'chili'] } }); // too many
+  say(h, { t: 'cobite', s: sid2 }); // nothing to bite yet
+  say(h, { t: 'codone', s: sid2, n: 5 }); // nothing to rate yet
+  await sleep(300);
+  check(co(x, 'cofood').length === 0 && co(x, 'cobite').length === 0 && co(h, 'codone').length === 0 && co(g).length === 1, 'food that is not on that restaurant\'s menu, a made-up twist or topping, or a choice by the wrong player is never passed on');
+  say(h, { t: 'cofood', s: sid2, b: { k: 'pizza', b: 'pesto', t: ['olive', 'pepperoni'], note: 'x' }, text: 'yum' });
+  await sleep(200);
+  say(h, { t: 'cofood', s: sid2, f: 'cheesepizza' }); // the choice is made once
+  await sleep(300);
+  const served = co(x, 'cofood');
+  check(served.length === 1 && keys(served[0]) === 'b,s,t' && JSON.stringify(served[0].b) === JSON.stringify({ k: 'pizza', b: 'pesto', t: ['pepperoni', 'olive'] }) && co(g).length === 1,
+    'the host\'s choice (here a build-your-own pizza) reaches the co-host once, rebuilt from presets only');
+  say(h, { t: 'cobite', s: sid2, text: 'chomp' });
+  say(g, { t: 'cobite', s: sid2 });
+  say(x, { t: 'codone', s: sid2, n: 9 });
+  say(x, { t: 'codone', s: sid2, n: 4, text: 'so good' });
+  say(x, { t: 'codone', s: sid2, n: 5 });
+  await sleep(300);
+  const stars = co(h, 'codone');
+  check(keys(co(x, 'cobite')[0]) === 'id,s,t' && co(x, 'cobite').length === 1 && co(x, 'cobite')[0].id === hId && stars.length === 1 && stars[0].n === 4 && stars[0].id === xId
+    && keys(stars[0]) === 'id,n,s,t' && co(g).length === 1,
+    'bites and star ratings (1 to 5, once each) go to the other player at the table, and to nobody else');
+  inside(x, 'slice'); // the co-host has walked in…
+  say(x, { t: 'st', x: 0, z: 9, ry: 0, an: 'walk' }); // …and out again
+  await sleep(300);
+  const over = co(h, 'coend')[0];
+  check(over && over.s === sid2 && over.id === xId && keys(over) === 'id,s,t', 'walking out of the restaurant ends the table, and the friend left behind is told');
+  say(h, { t: 'cobite', s: sid2 });
+  await sleep(200);
+  check(co(x, 'cobite').length === 1, 'after that the old session id does nothing');
+  // disconnects: x hosts g, then goes away
+  inside(x, 'jj');
+  await sleep(100);
+  say(x, { t: 'coinv', to: gId, r: 'jj' });
+  await sleep(300);
+  const sid3 = co(g, 'coinv').pop().s;
+  say(g, { t: 'coans', s: sid3, a: 'yes' });
+  await sleep(300);
+  x.close();
+  await sleep(300);
+  const dropped = co(g, 'coend').pop();
+  check(co(g, 'cojoin').length === 1 && dropped && dropped.s === sid3 && dropped.id === xId, 'if one of the two disconnects, the other is told the table is over');
+  // an invite that was taken back, and one whose friend went away
+  say(g, { t: 'st', x: 0, z: 7, ry: 0, an: 'idle' });
+  await sleep(2500); // h has asked twice: after that one more ask is allowed every few seconds
+  say(h, { t: 'coinv', to: gId, r: 'slice' });
+  await sleep(300);
+  check(co(h, 'cono').pop().why === 'no' && co(g, 'coinv').length === 2, 'the friend who said no is still left alone');
+  const y = await open('table-check-1');
+  say(y, { t: 'hello', app: { ...app, name: 'Brave Mango' } });
+  await sleep(300);
+  say(h, { t: 'coinv', to: idOf(y), r: 'slice' });
+  await sleep(300);
+  const sid4 = co(y, 'coinv')[0]?.s;
+  say(h, { t: 'coleave', s: sid4 });
+  await sleep(300);
+  check(sid4 && co(y, 'coend').length === 1 && co(y, 'coend')[0].s === sid4, 'the host can take an invite back: the friend\'s invite goes away');
+  say(y, { t: 'coans', s: sid4, a: 'yes' });
+  await sleep(300);
+  check(co(h, 'cojoin').length === 1 && co(y, 'cojoin').length === 0, 'answering an invite that is gone does nothing');
+  say(h, { t: 'coinv', to: idOf(y), r: 'slice' });
+  await sleep(300);
+  check(co(h, 'cono').pop().why === 'wait' && co(y, 'coinv').length === 1, 'asking, taking it back and asking again does not flash card after card: that friend gets a rest too');
+  h.close();
+  g.close();
+  y.close();
+  // however many players ask, one player is only shown so many cards
+  const shown = await open('table-check-4');
+  say(shown, { t: 'hello', app });
+  const askers = [];
+  for (let i = 0; i < 4; i++) {
+    const ws = await open('table-check-4');
+    say(ws, { t: 'hello', app: { ...app, name: 'Brave Mango' } });
+    askers.push(ws);
+  }
+  await sleep(300);
+  inside(askers[0], 'jj');
+  say(askers[0], { t: 'coinv', to: idOf(shown), r: 'jj' });
+  await sleep(150);
+  say(shown, { t: 'coans', s: co(shown, 'coinv')[0]?.s, a: 'busy' }); // the friend's game answers for them: no card was shown
+  await sleep(150);
+  for (const ws of askers) {
+    inside(ws, 'jj');
+    say(ws, { t: 'coinv', to: idOf(shown), r: 'jj' });
+    await sleep(150);
+    say(ws, { t: 'coleave', s: co(ws, 'coinv').pop()?.s }); // each asker takes the invite straight back
+    await sleep(150);
+  }
+  check(co(shown, 'coinv').length === 4 && new Set(co(shown, 'coinv').map((m) => m.s)).size === 4 && co(askers[3], 'cono').pop()?.why === 'busy' && co(askers[3], 'coinv').length === 0,
+    `one player is shown at most 3 invite cards in a row (then one every ${TABLE.cardEvery} s), whoever asks; invites their game answered "busy" do not count`);
+  shown.close();
+  askers.forEach((ws) => ws.close());
+
+  // a friend who says yes but never walks in does not keep the chair
+  const [w1, w2] = [await open('table-check-3'), await open('table-check-3')];
+  say(w1, { t: 'hello', app });
+  say(w2, { t: 'hello', app: { ...app, name: 'Zippy Mango' } });
+  await sleep(300);
+  inside(w1, 'curry');
+  say(w1, { t: 'coinv', to: idOf(w2), r: 'curry' });
+  await sleep(300);
+  say(w2, { t: 'coans', s: co(w2, 'coinv')[0]?.s, a: 'yes' });
+  const yesAt = Date.now();
+
+  await sleep(Math.max(0, askedAt + TABLE.inviteTtl * 1000 + 700 - Date.now()));
+  const timedOut = co(lonely, 'cono')[0];
+  say(shy, { t: 'coans', s: co(shy, 'coinv')[0]?.s, a: 'yes' });
+  await sleep(300);
+  check(timedOut && timedOut.why === 'timeout' && co(shy, 'coend').length === 1 && co(lonely, 'cojoin').length === 0,
+    `an invite nobody answers is over after ${TABLE.inviteTtl} s, for both of them`);
+  lonely.close();
+  shy.close();
+  await sleep(Math.max(0, yesAt + TABLE.seatTtl * 1000 + 700 - Date.now()));
+  check(co(w1, 'cojoin').length === 1 && co(w1, 'coend').length === 1 && co(w2, 'coend').length === 1 && co(w2, 'coend')[0].s === co(w1, 'cojoin')[0].s,
+    `a friend who says yes but never sits down gives the chair back after ${TABLE.seatTtl} s`);
+  w1.close();
+  w2.close();
 
   // max 8 per room
   const crowd = [];
@@ -387,28 +588,28 @@ async function main() {
     check(rode > 10 && Math.hypot(landed.x, landed.z) < town.ring - 5, `the slide carried the player ${rode.toFixed(1)} units, landing clear of the buildings`);
 
     /** Walk the last few steps to restaurant `id` with the W key (desktop controls) and go in. */
-    const goIn = async (id, opensOn = 'order') => {
+    const goIn = async (id, opensOn = 'order', page = A) => {
       const door = town.list.find((r) => r.id === id).door;
       const len = Math.hypot(door.x, door.z);
       // hop onto its path, facing the door, then walk
-      await A.evaluate(([x, z, yaw]) => window.__t42.teleport(x, z, yaw), [(door.x * (len - 8)) / len, (door.z * (len - 8)) / len, Math.atan2(-door.x, -door.z)]);
-      await A.keyboard.down('w');
-      const reached = await waitFor(A, (d) => {
+      await page.evaluate(([x, z, yaw]) => window.__t42.teleport(x, z, yaw), [(door.x * (len - 8)) / len, (door.z * (len - 8)) / len, Math.atan2(-door.x, -door.z)]);
+      await page.keyboard.down('w');
+      const reached = await waitFor(page, (d) => {
         const p = window.__t42.playerPosition();
         return Math.hypot(p.x - d.x, p.z - d.z) < 2.4;
       }, door, 15000);
-      await A.keyboard.up('w');
+      await page.keyboard.up('w');
       check(reached, `walked to the ${id} door with W key`);
-      check(await A.locator('#btn-go-in').isVisible() && (await A.locator('#go-in-text').textContent()).includes('Go in'), '"Go in!" button appears near the door');
-      await A.locator('#btn-go-in').tap({ force: true });
-      check(await waitFor(A, (m) => window.__t42.mode() === m, opensOn), `${opensOn === 'belt' ? 'conveyor belt' : 'order screen'} opens`);
+      check(await page.locator('#btn-go-in').isVisible() && (await page.locator('#go-in-text').textContent()).includes('Go in'), '"Go in!" button appears near the door');
+      await page.locator('#btn-go-in').tap({ force: true });
+      check(await waitFor(page, (m) => window.__t42.mode() === m, opensOn), `${opensOn === 'belt' ? 'conveyor belt' : 'order screen'} opens`);
     };
-    const rateAndLeave = async (stars) => {
-      await A.locator('#btn-review-done').tap();
-      const mood = await A.locator('.mood-btn.on').textContent();
-      await A.locator('.star-btn').nth(stars - 1).tap();
-      await A.locator('#rate-save').tap();
-      check(await waitFor(A, () => window.__t42.mode() === 'plaza', null, 8000), 'back in the plaza after rating');
+    const rateAndLeave = async (stars, page = A) => {
+      await page.locator('#btn-review-done').tap();
+      const mood = await page.locator('.mood-btn.on').textContent();
+      await page.locator('.star-btn').nth(stars - 1).tap();
+      await page.locator('#rate-save').tap();
+      check(await waitFor(page, () => window.__t42.mode() === 'plaza', null, 8000), 'back in the plaza after rating');
       return mood;
     };
     /** Wait for a plate to glide into the middle of the screen, then tap it on the 3D canvas. */
@@ -785,7 +986,7 @@ async function main() {
     await A.locator('#book-close').tap();
 
     console.log('\n🎯 Reviewer missions');
-    const foodIds = new Set(RESTAURANTS.flatMap((r) => r.menu.map((m) => m.id)));
+    const foodIds = new Set([...RESTAURANTS.flatMap((r) => r.menu.map((m) => m.id)), ...Object.values(BUILDS).map((b) => b.fid)]);
     check(MISSIONS.length >= 10 && MISSIONS.every((m) => m.pics && m.title && m.need >= 1) && Object.values(FOOD_TAGS).flat().every((id) => foodIds.has(id)),
       `${MISSIONS.length} picture missions, and every food tag points at a real food`);
     const fresh = newMissions();
@@ -975,6 +1176,335 @@ async function main() {
     check((await A.locator('#reward-wear').textContent()).includes('Again') && await size(A, '#reward-later') >= 56, 'the card offers another round');
     await A.locator('#reward-later').tap();
     check(await waitFor(A, () => window.__t42.mode() === 'plaza'), 'back in the plaza');
+
+    console.log('\n🍕 Build your own pizza');
+    const kitchens = Object.entries(BUILDS);
+    const kitchenWords = (def) => new Set(['My', 'Plain', '&', def.dish, ...def.bases.map((b) => b.word), ...def.toppings.map((t) => t.word), ...Object.values(BUILD_LOADED).flatMap((w) => w.split(' '))]);
+    const everyName = kitchens.flatMap(([k, def]) => def.bases.flatMap((b) => [[], ...def.toppings.map((t) => [t.id]), ...def.toppings.flatMap((t) => def.toppings.map((u) => [t.id, u.id])),
+      def.toppings.slice(0, 3).map((t) => t.id), def.toppings.slice(-4).map((t) => t.id)].map((t) => sanitizeBuild({ k, b: b.id, t })).filter(Boolean).map((b2) => ({ def, name: buildName(b2) }))));
+    check(kitchens.length === 2 && kitchens.every(([k, def]) => RESTAURANTS.filter((r) => r.build === k).length === 1 && def.max >= 3 && def.toppings.length >= 6 && def.bases.length >= 3
+      && !RESTAURANTS.some((r) => r.menu.some((m) => m.id === def.fid))),
+      `two kitchens, pizza at ${RESTAURANTS.find((r) => r.build === 'pizza').name} and sundae at ${RESTAURANTS.find((r) => r.build === 'sundae').name}, each with preset bases and toppings`);
+    check(everyName.length > 300 && everyName.every(({ def, name }) => name.length <= 40 && name.split(' ').every((w) => kitchenWords(def).has(w))),
+      `a creation's name is made of preset words only (${everyName.length} tried), e.g. "${buildName({ k: 'pizza', b: 'pesto', t: ['olive', 'corn'] })}"`);
+    const junkBuilds = [null, 'pizza', [], { k: 'pizza' }, { k: 'constructor', b: 'tomato', t: [] }, { k: 'pizza', b: 'mint', t: [] }, { k: 'pizza', b: 'tomato', t: 'olive' },
+      { k: 'pizza', b: 'tomato', t: ['olive', 'olive'] }, { k: 'pizza', b: 'tomato', t: ['<b>'] }, { k: 'sundae', b: 'mint', t: ['fudge', 'caramel', 'cream', 'cherry', 'banana'] }, { k: 'pizza', b: 'tomato', t: [{}] }];
+    check(junkBuilds.every((b) => sanitizeBuild(b) === null) && JSON.stringify(sanitizeBuild({ k: 'pizza', b: 'white', t: ['olive', 'pepperoni'], extra: 1 })) === '{"k":"pizza","b":"white","t":["pepperoni","olive"]}',
+      'a build is checked strictly: preset kind, base and toppings, no repeats, no more than fit (extra fields dropped)');
+    const full = toggleTopping({ k: 'pizza', b: 'tomato', t: ['pepperoni', 'mushroom', 'olive', 'corn'] }, 'basil');
+    const lucky = Array.from({ length: 40 }, (_, i) => randomBuild(i % 2 ? 'pizza' : 'sundae', () => (i * 0.37) % 1));
+    check(full.full && full.build.t.length === 4 && toggleTopping(full.build, 'olive').build.t.join() === 'pepperoni,mushroom,corn'
+      && lucky.every((b) => b && sanitizeBuild(b) && b.t.length >= 2 && b.t.length <= BUILDS[b.k].max),
+      'toppings switch on and off up to the limit, and "Mix it up!" always makes a real build');
+    check(buildItem({ k: 'pizza', b: 'tomato', t: ['chili'] }).react === 'spicy' && !buildItem(defaultBuild('pizza')).react && buildItem(defaultBuild('sundae')).react === 'cold'
+      && applyReview({ active: [{ id: 'chef', have: 0, seen: [] }], done: 0, next: 0 }, { rid: 'sundae', fid: BUILDS.sundae.fid, stars: 3 }).completed[0]?.id === 'chef',
+      'hot peppers make a pizza spicy, a sundae is always cold, and building one finishes the "Build your own" mission');
+    const models = await A.evaluate(async () => {
+      const { BUILDS: defs } = await import('/js/data.js');
+      const { createFood, hasToppingModel, hasFoodModel } = await import('/js/food.js');
+      // what a model looks like, in one line: how many corners it has and all its colors added up
+      const look = (g) => {
+        let n = 0;
+        let c = 0;
+        g.traverse((o) => {
+          if (!o.isMesh) return;
+          n += o.geometry.attributes.position.count;
+          for (const v of o.geometry.attributes.color?.array || []) c += v;
+        });
+        return `${n}:${c.toFixed(2)}`;
+      };
+      const out = { same: [], noModel: [], meshes: 0, triangles: 0 };
+      for (const [k, def] of Object.entries(defs)) {
+        const make = (b, t) => createFood(def.fid, '#e8590c', null, { k, b, t });
+        const plain = look(make(def.bases[0].id, []));
+        if (!hasFoodModel(def.fid)) out.noModel.push(def.fid);
+        for (const t of def.toppings) {
+          if (!hasToppingModel(k, t.id)) out.noModel.push(t.id);
+          if (look(make(def.bases[0].id, [t.id])) === plain) out.same.push(t.id);
+        }
+        for (const b of def.bases.slice(1)) if (look(make(b.id, [])) === plain) out.same.push(b.id);
+        for (let i = 0; i + def.max <= def.toppings.length; i++) {
+          const loaded = make(def.bases[def.bases.length - 1].id, def.toppings.slice(i, i + def.max).map((t) => t.id));
+          let meshes = 0;
+          let tris = 0;
+          loaded.traverse((o) => {
+            meshes += o.isMesh ? 1 : 0;
+            tris += o.isMesh ? o.geometry.index.count / 3 : 0;
+          });
+          out.meshes = Math.max(out.meshes, meshes);
+          out.triangles = Math.max(out.triangles, tris);
+        }
+      }
+      return out;
+    });
+    check(models.same.length === 0 && models.noModel.length === 0, `every topping and every base shows on the 3D food${models.same.length ? ` (no change: ${models.same})` : ''}`);
+    check(models.meshes <= 3 && models.triangles < 6000, `a fully loaded creation is still light (${models.meshes} draw calls, ${models.triangles} triangles)`);
+    const kitchen = () => A.evaluate(() => window.__t42.kitchen());
+    const tapChip = (id, row = 'toppings') => A.locator(`#build-${row} .top-chip[data-id="${id}"]`).tap();
+    const pizza = BUILDS.pizza;
+    await goIn('slice');
+    const tile = A.locator('.menu-item.build');
+    check(await tile.count() === 1 && (await tile.textContent()).includes(pizza.title) && await size(A, '.menu-item.build') >= 56
+      && await A.locator('.menu-item:not(.build)').count() === RESTAURANTS.find((r) => r.id === 'slice').menu.length,
+      `the Slice Squad menu has a "${pizza.title}" tile next to its ordinary foods`);
+    await tile.tap();
+    check(await waitFor(A, () => window.__t42.mode() === 'build') && await A.locator('#screen-build').isVisible() && await A.locator('#screen-order').isHidden(), 'tapping it opens the kitchen');
+    const chips = await A.locator('#build-toppings .top-chip').evaluateAll((els) => els.map((el) => ({ id: el.dataset.id, px: Math.min(el.offsetWidth, el.offsetHeight) })));
+    const sauces = await A.locator('#build-bases .top-chip').evaluateAll((els) => els.map((el) => ({ id: el.dataset.id, px: Math.min(el.offsetWidth, el.offsetHeight), on: el.classList.contains('on') })));
+    check(chips.map((c) => c.id).join() === pizza.toppings.map((t) => t.id).join() && sauces.map((c) => c.id).join() === pizza.bases.map((b) => b.id).join()
+      && [...chips, ...sauces].every((c) => c.px >= 56), `${chips.length} topping chips and ${sauces.length} sauce chips, all preset and all big touch targets (${Math.min(...[...chips, ...sauces].map((c) => c.px))}px)`);
+    check(await size(A, '#build-done') >= 56 && await size(A, '#build-back') >= 56 && await size(A, '#build-random') >= 56, 'so are "Review it!", "Mix it up!" and "Back to the menu"');
+    const plainPizza = await kitchen();
+    check(plainPizza.build.t.length === 0 && plainPizza.name === 'My Plain Pizza' && sauces[0].on && plainPizza.triangles > 100, `it starts as a plain pizza on the 3D plate ("${plainPizza.name}")`);
+    await tapChip('pepperoni');
+    const one = await kitchen();
+    await tapChip('chili');
+    const two = await kitchen();
+    check(one.build.t.join() === 'pepperoni' && one.name === 'My Pepperoni Pizza' && two.name === 'My Pepperoni & Chili Pizza'
+      && new Set([plainPizza.look, one.look, two.look]).size === 3 && await A.locator('#build-toppings .top-chip.on').count() === 2,
+      `tapping chips puts the toppings on the 3D pizza: "${two.name}" (${plainPizza.triangles} → ${one.triangles} triangles, and its colors change)`);
+    await tapChip('mushroom');
+    await tapChip('olive');
+    await tapChip('corn'); // a fifth: the plate is full
+    const loaded = await kitchen();
+    check(loaded.build.t.join() === 'pepperoni,mushroom,olive,chili' && loaded.name === 'My Mega Topping Pizza' && (await A.locator('#build-count').textContent()).includes(`${pizza.max} of ${pizza.max}`)
+      && await A.locator('#build-toppings .top-chip.on[data-id="corn"]').count() === 0, `no more than ${pizza.max} toppings fit: a fifth chip is not switched on`);
+    await tapChip('mushroom');
+    await tapChip('olive');
+    await tapChip('pesto', 'bases');
+    const green = await kitchen();
+    check(green.build.b === 'pesto' && green.build.t.join() === 'pepperoni,chili' && green.name === 'My Pesto Pepperoni & Chili Pizza' && green.look !== two.look && await A.locator('#build-bases .top-chip.on').count() === 1,
+      `tapping a chip again takes the topping off, and there is one sauce at a time: "${green.name}"`);
+    const kitchenPerf = await A.evaluate(() => window.__t42.renderInfo());
+    check(kitchenPerf.calls < 120, `the kitchen stays light for iPad (${kitchenPerf.calls} draw calls)`);
+    await A.locator('#build-done').tap();
+    check(await waitFor(A, () => window.__t42.mode() === 'review') && await A.locator('#screen-build').isHidden(), '"Review it!" starts the review');
+    const myPizza = await A.evaluate(() => window.__t42.item());
+    check(myPizza.id === pizza.fid && myPizza.name === green.name && myPizza.react === 'spicy' && JSON.stringify(myPizza.build) === JSON.stringify(green.build), `the creation is what gets reviewed: ${myPizza.name}`);
+    await A.locator('.rv-emote.bite').tap();
+    check(await waitFor(A, () => window.__t42.playerEmote() === 'spicy', null, 6000) && await waitFor(B, () => window.__t42.remoteEmotes().includes('spicy'), null, 4000),
+      'a bite of hot-pepper pizza is spicy 🥵, and the friend sees it');
+    await rateAndLeave(5);
+    const savedPizza = (await A.evaluate(() => JSON.parse(localStorage.getItem('t42.reviews')))).pop();
+    check(savedPizza.rid === 'slice' && savedPizza.fid === pizza.fid && savedPizza.food === green.name && savedPizza.stars === 5 && JSON.stringify(savedPizza.build) === JSON.stringify(green.build),
+      'the review is saved with what went on the pizza');
+
+    console.log('\n🍨 Build your own sundae');
+    const sundae = BUILDS.sundae;
+    await goIn('sundae');
+    check((await A.locator('.menu-item.build .mi-tag').textContent()) === FOOD_REACTIONS.cold.tag && (await A.locator('.menu-item.build').textContent()).includes(sundae.title), `Sundae Funday has a "${sundae.title}" tile (tagged cold)`);
+    await A.locator('.menu-item.build').tap();
+    check(await waitFor(A, () => window.__t42.mode() === 'build') && await A.locator('#build-toppings .top-chip').count() === sundae.toppings.length
+      && await A.locator('#build-bases .top-chip').count() === sundae.bases.length && (await kitchen()).name === 'My Vanilla Sundae', `its kitchen has ${sundae.bases.length} ice creams and ${sundae.toppings.length} toppings`);
+    await A.locator('#build-random').tap();
+    const mixed = await kitchen();
+    check(mixed.build.t.length >= 2 && mixed.build.t.length <= sundae.max && sanitizeBuild(mixed.build) !== null && await A.locator('#build-toppings .top-chip.on').count() === mixed.build.t.length,
+      `"Mix it up!" picks for you: ${mixed.name}`);
+    await A.locator('#build-back').tap();
+    check(await waitFor(A, () => window.__t42.mode() === 'order') && (await kitchen()) === null && await A.locator('#screen-build').isHidden(), '"Back to the menu" leaves the kitchen');
+    await A.locator('.menu-item.build').tap();
+    await waitFor(A, () => window.__t42.mode() === 'build');
+    check((await kitchen()).name === 'My Vanilla Sundae', 'coming back starts a fresh sundae');
+    await tapChip('chocolate', 'bases');
+    await tapChip('fudge');
+    await tapChip('cherry');
+    const fudgy = await kitchen();
+    check(fudgy.name === 'My Chocolate Fudge & Cherry Sundae', `chocolate ice cream, hot fudge and a cherry: "${fudgy.name}"`);
+    await A.locator('#build-done').tap();
+    check(await waitFor(A, () => window.__t42.mode() === 'review') && (await A.evaluate(() => window.__t42.item())).react === 'cold', 'the sundae goes to the table');
+    await A.locator('.rv-emote.bite').tap();
+    check(await waitFor(A, () => window.__t42.playerEmote() === 'cold', null, 6000), 'brain freeze 🥶');
+    await rateAndLeave(4);
+    await A.locator('#btn-reviews').tap();
+    await A.locator('#book-tab-reviews').tap();
+    const madeChips = await A.locator('.book-page li .made').allTextContents();
+    check((await A.locator('.book-page li .fn').allTextContents()).filter((n) => n === green.name || n === fudgy.name).length === 2
+      && madeChips.length === 2 && madeChips.some((c) => c.includes('🌶️') && c.includes('🌿')) && madeChips.some((c) => c.includes('🍒')),
+      `the scrapbook shows both creations and what went on them (${madeChips.join('  ')})`);
+    const bookFits = await A.locator('.book-page li .made').first().evaluate((el) => {
+      const page = el.closest('.book-page').getBoundingClientRect();
+      const row = el.closest('li').getBoundingClientRect();
+      const stars = el.closest('li').querySelector('.st').getBoundingClientRect();
+      return row.bottom <= page.bottom + 1 && stars.right <= page.right && stars.left >= page.left;
+    });
+    check(bookFits, 'a creation with its chips still fits on its scrapbook page');
+    await A.locator('#book-close').tap();
+    const stored = await B.evaluate(async () => {
+      const { loadReviews } = await import('/js/storage.js');
+      localStorage.setItem('t42.reviews', JSON.stringify([
+        { rid: 'slice', fid: 'mypizza', food: '<b>hax</b>', emoji: '💣', stars: 5, ts: 1, build: { k: 'pizza', b: 'tomato', t: ['olive', 'pepperoni'], x: 1 }, co: 'Happy Taco' },
+        { rid: 'slice', fid: 'mypizza', food: 'whatever', stars: 4, ts: 2, build: { k: 'sundae', b: 'mint', t: [] }, co: 'Free Text' },
+        { rid: 'jj', fid: 'mypizza', food: 'Giant Cookie', stars: 3, ts: 3, build: { k: 'pizza', b: 'tomato', t: [] }, co: '<img>' },
+      ]));
+      const out = loadReviews();
+      localStorage.removeItem('t42.reviews');
+      return out;
+    });
+    check(stored[0].food === 'My Pepperoni & Olive Pizza' && stored[0].emoji === '🍕' && stored[0].co === 'Happy Taco' && JSON.stringify(stored[0].build) === '{"k":"pizza","b":"tomato","t":["pepperoni","olive"]}'
+      && stored[1].food === 'My Plain Pizza' && !('co' in stored[1]) && stored[2].fid === 'cookie' && !('build' in stored[2]) && !JSON.stringify(stored).includes('<'),
+      'saved creations are rebuilt from their preset choices when loaded: the name, the toppings and the co-host are never trusted');
+
+    console.log('\n👯 Friend as co-host');
+    const slice = RESTAURANTS.find((r) => r.id === 'slice');
+    const cheese = slice.menu[0];
+    check(JSON.stringify(tableFood(cheese)) === `{"f":"${cheese.id}"}` && tableItem(slice, tableFood(cheese)) === cheese
+      && JSON.stringify(tableFood(mysteryItem(cheese, MYSTERY_TWISTS[0]))) === `{"f":"${cheese.id}","my":true,"tw":"${MYSTERY_TWISTS[0].id}"}`
+      && tableItem(slice, { f: cheese.id, my: true, tw: MYSTERY_TWISTS[0].id }).name === `${MYSTERY_TWISTS[0].word} ${cheese.name}`
+      && tableItem(slice, tableFood(buildItem(green.build))).name === green.name,
+      'the food a table shares is sent as ids only (menu id, Mystery twist, or a build) and turned back into the same food');
+    check(sanitizeTableFood('slice', { f: 'sundae' }) === null && sanitizeTableFood('slice', { f: cheese.id, tw: 'pickle' }) === null && sanitizeTableFood('nowhere', { f: cheese.id }) === null
+      && sanitizeTableFood('jj', { b: green.build }) === null && sanitizeTableFood('slice', { b: fudgy.build }) === null && tableItem(slice, { f: '<b>' }) === null
+      && sanitizeTableFood('slice', { f: cheese.id, name: 'x' }) && !('name' in sanitizeTableFood('slice', { f: cheese.id, name: 'x' })),
+      'and checked on the way in: it has to be on that restaurant\'s menu or from its own kitchen');
+    // give the friend a name of their own, so the two reviewers can be told apart
+    await B.locator('#btn-me').tap();
+    await B.locator('.chip-btn', { hasText: 'Jolly' }).tap();
+    await B.locator('.chip-btn', { hasText: 'Waffle' }).tap();
+    await B.locator('#studio-done').tap();
+    const nameB = 'Jolly Waffle';
+    check(nameA !== nameB && await waitFor(A, (n) => window.__t42.remotePositions()[0]?.name === n, nameB, 8000), `the friend is called ${nameB} (a preset fun name); the host is ${nameA}`);
+    const table = (page) => page.evaluate(() => window.__t42.table());
+    const toastOn = (page) => page.locator('#toast').textContent();
+    /** A, inside a restaurant, asks B to co-host. */
+    const invite = async (host = A) => {
+      await host.locator('#order-cohost').tap();
+      await host.locator('.friend-btn').first().tap();
+    };
+
+    await goIn('slice');
+    const askBtn = A.locator('#order-cohost');
+    check(await askBtn.isVisible() && (await askBtn.textContent()).includes('Invite a co-host') && await size(A, '#order-cohost') >= 56, 'with a friend in town, the menu has an "Invite a co-host" button');
+    await askBtn.tap();
+    const friends = await A.locator('.friend-btn').evaluateAll((els) => els.map((el) => ({ name: el.textContent, px: el.offsetHeight })));
+    check(await A.locator('#screen-cohost').isVisible() && friends.length === 1 && friends[0].name === nameB && friends[0].px >= 56 && await size(A, '#cohost-close') >= 56,
+      'it lists the friends in town by their preset names, as big buttons');
+    await A.locator('.friend-btn').first().tap();
+    check(await waitFor(B, (n) => window.__t42.table().invite?.from === n, nameA, 6000) && (await table(A)).asking === nameB, 'tapping a friend sends the invite');
+    const card = await B.evaluate(() => ({
+      shown: !document.querySelector('#co-invite').classList.contains('hidden'), text: document.querySelector('#co-invite-text').textContent,
+      px: ['#co-invite-yes', '#co-invite-no'].map((sel) => document.querySelector(sel).offsetHeight), rid: window.__t42.table().invite.rid,
+    }));
+    check(card.shown && card.text.includes(nameA) && card.text.includes(slice.name) && card.rid === 'slice' && card.px.every((px) => px >= 56),
+      `the friend gets a card with two big buttons: "${card.text}"`);
+    check(await A.locator('#cohost-waiting').isVisible() && (await A.locator('#cohost-waiting-text').textContent()).includes(nameB) && await A.locator('.friend-btn').count() === 1 && await A.locator('#cohost-friends').isHidden(),
+      'the host waits for the answer (and can only say "Never mind")');
+    await B.locator('#co-invite-yes').tap();
+    check(await waitFor(B, () => window.__t42.mode() === 'wait', null, 10000), 'saying yes takes the friend into the restaurant');
+    check(await waitFor(A, () => window.__t42.table().co !== null, null, 5000), 'the host is told the friend said yes');
+    const [seatA, seatB] = [await table(A), await table(B)];
+    check(seatA.seat === 0 && seatA.co.name === nameB && seatA.co.host && seatA.co.sitting && seatA.otherChair === 'friend'
+      && seatB.seat === 1 && seatB.co.name === nameA && !seatB.co.host && seatB.co.sitting && seatB.otherChair === 'friend',
+      'seat assignment: the host keeps the first chair, the friend takes the co-host chair (instead of the grown-up), on both screens');
+    check(await A.locator('#screen-cohost').isHidden() && (await A.locator('#order-cohost').textContent()).includes(nameB) && (await A.evaluate(() => window.__t42.mode())) === 'order', 'the host is back at the menu, which now says who is at the table');
+    const waitUi = await B.evaluate(() => ({
+      text: document.querySelector('#wait-text').textContent, shown: !document.querySelector('#screen-wait').classList.contains('hidden'),
+      px: [...document.querySelectorAll('.wait-emote'), document.querySelector('#wait-leave')].map((el) => Math.min(el.offsetWidth, el.offsetHeight)),
+      menu: !document.querySelector('#screen-order').classList.contains('hidden'),
+    }));
+    check(waitUi.shown && waitUi.text.includes(nameA) && !waitUi.menu && waitUi.px.length === WAIT_EMOTES.length + 1 && waitUi.px.every((px) => px >= 56),
+      'while the host chooses, the friend waits with emote buttons only (no menu, nothing to type)');
+    await B.locator('.wait-emote').first().tap();
+    check(await waitFor(A, (e) => window.__t42.table().co?.emote === e, WAIT_EMOTES[0], 5000), `the friend's ${WAIT_EMOTES[0]} is played by the friend sitting at the host's table`);
+    // the host builds a pizza for both of them
+    await A.locator('.menu-item.build').tap();
+    await waitFor(A, () => window.__t42.mode() === 'build');
+    await tapChip('pepperoni');
+    await tapChip('chili');
+    await A.locator('#build-done').tap();
+    check(await waitFor(B, () => window.__t42.mode() === 'review', null, 8000) && await waitFor(A, () => window.__t42.mode() === 'review'), 'when the host has chosen, the review starts for both');
+    const [itemA, itemB] = [await A.evaluate(() => window.__t42.item()), await B.evaluate(() => window.__t42.item())];
+    check(itemA.id === pizza.fid && JSON.stringify(itemA) === JSON.stringify(itemB) && itemB.name === 'My Pepperoni & Chili Pizza', `shared food choice: both plates get the host's ${itemB.name}`);
+    check((await B.locator('#vf-cohost').textContent()).includes(nameA) && (await A.locator('#vf-cohost').textContent()).includes(nameB) && await B.locator('#vf-cohost').isVisible(), 'the viewfinder says who the review is filmed with');
+    await A.locator('.rv-emote.bite').tap();
+    check(await waitFor(B, () => window.__t42.table().theirs < 0.9, null, 6000) && await waitFor(A, () => window.__t42.table().mine < 0.9, null, 6000), "the host's bite is seen on the friend's screen: the host's pizza gets smaller there too");
+    check(await waitFor(B, () => window.__t42.table().co?.emote === 'spicy', null, 6000), 'shared reactions: the friend sees the host go 🥵 at the table');
+    check((await table(B)).mine === 1 && (await table(A)).theirs === 1, "the friend's own pizza is untouched");
+    await B.locator('.rv-emote.bite').tap();
+    check(await waitFor(A, () => window.__t42.table().theirs < 0.9, null, 6000), "and the friend's bite is seen by the host");
+    await sleep(1200);
+    await B.locator('.rv-emote').nth(1).tap();
+    check(await waitFor(A, () => window.__t42.table().co?.emote === 'yum', null, 5000), 'emotes are shared across the table as well');
+    // each of the two rates for themselves; the first to finish stays to see the other's stars
+    await B.locator('#btn-review-done').tap();
+    await B.locator('.star-btn').nth(3).tap();
+    await B.locator('#rate-save').tap();
+    check(await waitFor(A, () => window.__t42.table().co?.stars === 4, null, 6000) && (await A.evaluate(() => window.__t42.mode())) === 'review', `the host, still filming, is told how many stars ${nameB} gave`);
+    const reviewB = (await B.evaluate(() => JSON.parse(localStorage.getItem('t42.reviews')))).pop();
+    const beforeA = (await A.evaluate(() => JSON.parse(localStorage.getItem('t42.reviews')))).pop();
+    check(reviewB.rid === 'slice' && reviewB.fid === pizza.fid && reviewB.stars === 4 && reviewB.co === nameA && beforeA.co === undefined, "the friend's rating is saved on the friend's device only");
+    check(await waitFor(B, () => window.__t42.mode() === 'after', null, 6000) && (await B.locator('#wait-text').textContent()).includes(nameA) && await B.locator('#screen-wait').isVisible()
+      && (await table(B)).co !== null && await size(B, '#wait-leave') >= 56, `the friend, who rated first, stays at the table to see what ${nameA} gives it (or can go back outside)`);
+    await rateAndLeave(5);
+    check(await waitFor(B, () => window.__t42.table().last?.stars === 5, null, 6000), `and is told: ${nameA} gave it 5 stars`);
+    const reviewA = (await A.evaluate(() => JSON.parse(localStorage.getItem('t42.reviews')))).pop();
+    check(reviewA.rid === 'slice' && reviewA.stars === 5 && reviewA.co === nameB && reviewA.food === reviewB.food && (await B.evaluate(() => JSON.parse(localStorage.getItem('t42.reviews')))).length === 1,
+      'each saves their own rating: 5 stars from the host, 4 from the friend');
+    check(await waitFor(B, () => window.__t42.mode() === 'plaza', null, 10000) && (await table(A)).last.stars === 4, 'then both are back in town');
+    const outside = await B.evaluate(() => window.__t42.playerPosition());
+    const sliceDoor = town.list.find((r) => r.id === 'slice').door;
+    check(Math.hypot(outside.x - sliceDoor.x, outside.z - sliceDoor.z) < 9 && (await B.evaluate(() => window.__t42.table())).seat === 0, 'the friend comes back out by that restaurant\'s door');
+    await A.locator('#btn-reviews').tap();
+    await A.locator('#book-tab-reviews').tap();
+    check((await A.locator('.book-page li .with').allTextContents()).some((t) => t.includes(nameB)), 'the scrapbook remembers who co-hosted');
+    await A.locator('#book-close').tap();
+
+    console.log('\n🚪 Leaving, saying no, and going offline');
+    await goIn('tacobell');
+    await invite();
+    await waitFor(B, () => window.__t42.table().invite !== null, null, 6000);
+    await B.locator('#co-invite-yes').tap();
+    check(await waitFor(B, () => window.__t42.mode() === 'wait', null, 10000) && await waitFor(A, () => window.__t42.table().co !== null, null, 5000), 'a second table, at Taco Bell');
+    await A.locator('#order-leave').tap();
+    check(await waitFor(B, () => window.__t42.mode() === 'order' && window.__t42.table().co === null, null, 8000), 'if the host leaves before choosing, the friend gets the menu');
+    const tookOver = await table(B);
+    check(tookOver.seat === 0 && tookOver.otherChair === 'grownup' && (await B.locator('#order-rest').textContent()) === 'Taco Bell' && await B.locator('#screen-wait').isHidden(),
+      'and the table: first chair, with the grown-up co-host opposite');
+    await waitFor(A, () => window.__t42.mode() === 'plaza', null, 8000);
+    await invite(B);
+    check(await waitFor(A, (n) => window.__t42.table().invite?.from === n, nameB, 6000), 'now the friend invites the first reviewer');
+    await A.locator('#co-invite-no').tap();
+    check(await waitFor(B, () => window.__t42.table().asking === null && document.querySelector('#screen-cohost').classList.contains('hidden'), null, 6000)
+      && (await toastOn(B)).includes("can't right now") && (await table(A)).invite === null && await A.locator('#co-invite').isHidden(), '"No thanks" closes the card and tells the friend kindly');
+    await invite(B);
+    await sleep(900);
+    check((await table(A)).invite === null && (await table(B)).asking === null && (await B.evaluate(() => window.__t42.mode())) === 'order', 'asking again straight away does not pop up another card: no means no for a while');
+    await B.locator('#order-leave').tap();
+    await waitFor(B, () => window.__t42.mode() === 'plaza', null, 8000);
+    // busy, then a table that ends because the friend's game goes away
+    await goIn('pasta');
+    await B.locator('#btn-closet').tap();
+    await invite();
+    check(await waitFor(A, () => window.__t42.table().asking === null && document.querySelector('#toast').textContent.includes('busy'), null, 6000) && await B.locator('#co-invite').isHidden(),
+      'a friend who is in the closet is not interrupted: the host is told they are busy');
+    await B.locator('#studio-done').tap();
+    await invite();
+    await waitFor(B, () => window.__t42.table().invite !== null, null, 6000);
+    await B.locator('#co-invite-yes').tap();
+    await waitFor(B, () => window.__t42.mode() === 'wait', null, 10000);
+    await waitFor(A, () => window.__t42.table().co !== null, null, 5000);
+    await A.locator('.menu-item').first().tap();
+    check(await waitFor(B, () => window.__t42.mode() === 'review', null, 8000) && (await B.evaluate(() => window.__t42.item())).id === RESTAURANTS.find((r) => r.id === 'pasta').menu[0].id,
+      'a third table, at Pasta Porch, with a food from the menu');
+    const tablePerf = [await A.evaluate(() => window.__t42.renderInfo()), await B.evaluate(() => window.__t42.renderInfo())];
+    check(tablePerf.every((p) => p.calls < 120 && p.triangles < 110000), `a table for two stays light for iPad (${tablePerf.map((p) => p.calls).join(' / ')} draw calls)`);
+    // a bite from the friend is still on its way when their game goes away: nothing must be left behind
+    await B.locator('.rv-emote.bite').tap();
+    await sleep(150);
+    await B.reload();
+    check(await waitFor(A, () => window.__t42.table().co === null && window.__t42.table().otherChair === 'grownup', null, 10000) && (await A.evaluate(() => window.__t42.mode())) === 'review',
+      "disconnect handling: when the friend's game goes away, the grown-up co-host takes the chair and the review goes on");
+    await sleep(1500);
+    check((await table(A)).theirs >= 0.78 && (await A.evaluate(() => window.__t42.remotePlayerCount())) <= 1, "and the friend's last bite does not go on eating the grown-up's food");
+    await rateAndLeave(3);
+    check((await A.evaluate(() => JSON.parse(localStorage.getItem('t42.reviews')))).pop().co === nameB, 'that review still remembers the friend it was filmed with');
+    check(await waitFor(B, () => window.__t42 && window.__t42.ready, null, 20000), 'the friend comes back to town');
+    for (let k = 0; k < 3; k++) {
+      if (await B.locator('#screen-studio').isHidden()) break;
+      await B.locator('#studio-done').tap();
+      await sleep(150);
+    }
+    check(await waitFor(B, () => window.__t42.netStatus() === 'online' && window.__t42.remotePlayerCount() === 1, null, 15000) && await waitFor(A, () => window.__t42.remotePlayerCount() === 1, null, 15000)
+      && (await B.evaluate(() => window.__t42.mode())) === 'plaza' && (await table(B)).co === null, 'and everyone sees each other again');
 
     console.log('\n📱 Still light for iPad');
     await A.locator('#btn-scooter').tap();

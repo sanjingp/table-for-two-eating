@@ -1,7 +1,7 @@
 // Reviewer missions: picture challenges that are ticked off by filming reviews.
 // Pure data in, data out (no DOM), so the scrapbook, the menu tags and the tests all agree.
 // Missions are personal and live on the device; nothing here is ever sent to friends.
-import { MISSIONS, MISSION_SLOTS, FOOD_TAGS, RANKS, RESTAURANTS } from './data.js';
+import { MISSIONS, MISSION_SLOTS, FOOD_TAGS, RANKS, RESTAURANTS, BUILDS } from './data.js';
 
 const BY_ID = new Map(MISSIONS.map((m) => [m.id, m])); // a Map, so saved ids like "constructor" find nothing
 const KEY_OK = /^[a-z0-9]{1,24}$/;
@@ -124,7 +124,8 @@ export function missionCards(state) {
     const def = BY_ID.get(slot.id);
     const hints = [];
     if (def.kind === 'tag' || def.kind === 'react') {
-      for (const r of RESTAURANTS) for (const item of r.menu) {
+      const foods = [...RESTAURANTS.flatMap((r) => r.menu), ...Object.values(BUILDS).map((b) => ({ ...b, id: b.fid }))];
+      for (const item of foods) {
         if (counts(def, { fid: item.id, react: item.react }) && !hints.includes(item.emoji)) hints.push(item.emoji);
       }
     }

@@ -159,8 +159,63 @@
     message validation; no console or page errors. Focused mission checks and a raw-socket comparison also reproduced
     the original mission loss and late-join win, and verified their fixes.
 
+- [x] **Phase 4 of `ideas-v2.md` (Oct 10 2026)** — the two big ones, no new restaurants
+  - **Build your own pizza and sundae.** Slice Squad and Sundae Funday each have a kitchen (`build: 'pizza' | 'sundae'` on the
+    restaurant, choices in `BUILDS` in `data.js`). A golden "Build Your Own" tile on the menu opens it: the camera moves in on
+    the plate and the food is built there in 3D while you tap preset chips: one base (3 sauces / 4 ice creams) and up to 4 of
+    8 pizza toppings or 9 sundae toppings. Tapping a chip again takes it off, a fifth chip shakes and says the plate is full,
+    "🎲 Mix it up!" picks for you. "🎬 Review it!" films it like any other food.
+    - The creation is `{ k, b, t }` (kind, base, toppings): ids only. Its name is made from preset words in `build.js`
+      ("My Pesto Pepperoni & Chili Pizza", "My Triple Topping Mint Sundae"), hot peppers make a pizza `spicy`, a sundae is `cold`.
+    - Models are in `food.js` (`myPizza`, `mySundae`): every topping has its own little pieces, all baked into one mesh.
+    - Saved with the review (`fid` `mypizza` / `mysundae`, plus `build`). On load the build is checked and the name and emoji
+      are worked out again from it, never read from storage. The scrapbook shows the toppings as a row of emoji under the review.
+    - It is not a menu item, so the Menu Master badge still needs the same foods as before. It counts as cheesy / sweet for
+      missions, and there is one new mission, "Build your own pizza or sundae" (13 in all).
+  - **Friend as co-host (a table for two).** Inside a restaurant, before choosing, the menu (and the sushi belt) has
+    "👯 Invite a co-host". It lists the friends in town by their preset names. The friend gets a card: "🎬 Sparkly Taco asks:
+    be my co-host at Slice Squad?" with "Yes, let's go!" and "No thanks". Yes walks them in to the co-host chair, in place of
+    the grown-up. While the host chooses they wait with five emote buttons. Then both get the host's food (a menu food, a
+    Mystery Plate with its twist, a plate off the belt or a build-your-own), see each other's bites, food reactions, emotes
+    and lines across the table, and each rates on their own device. The other is only told the number of stars. Whoever
+    rates first stays at the table for a moment (25 s at most, with a "Go back outside" button) to see the friend's stars.
+    - The server runs the table (`server.js`, "tables for two"). It makes the session id, seats the two (`seats: [host, friend]`),
+      and passes food, bites and stars between those two only. New messages, all ids and presets: `coinv` `coans` `cofood`
+      `cobite` `codone` `coleave` from players, `coinv` `cono` `cojoin` `cofood` `cobite` `codone` `coend` from the server.
+    - Rules the server checks: the host must be filming at that restaurant's door (`TABLE.doorReach`), the friend must be in the
+      same room and free, one table or invite per player, invites time out after 20 s (and a friend who said yes has 10 s to
+      sit down). Only the host sets the food, once, and it must be on that restaurant's menu or from its own kitchen
+      (`sanitizeTableFood`). Stars are 1 to 5, once each.
+    - No pestering with invite cards: a player can send 2 invites and then one every 4 s; after "No thanks", an invite taken
+      back or one left unanswered, that friend cannot be asked again by the same player for 30 s, and every further "No thanks"
+      doubles that (up to 4 minutes); and whoever is asking, one player is shown at most 3 cards in a row, then one every 30 s
+      (`cardBucket`, which a reconnecting asker cannot reset; invites the friend's game answered "busy" showed no card and
+      do not count). The card sits below the race banner, not on top of it.
+    - Leaving and disconnects: the table ends when either player walks out (the server sees their state stop being `review`),
+      taps "Go back outside", rates and leaves, or disconnects. The one left behind carries on with the grown-up co-host. If the
+      host leaves before choosing, the friend moves to the first chair and gets the menu. A friend who is busy (closet,
+      scrapbook, already filming) is not interrupted: their game answers "busy" by itself.
+    - The friend at the table is the same character other players see in town, moved to the chair for the two at the table
+      (`seatFriend` / `unseatFriend` in `main.js`). Everyone else still sees both of them filming by the door.
+    - The review remembers who it was filmed with (`co`, a preset name, checked on load) and the scrapbook shows it.
+  - `npm test` extended (about 120 new checks, 335 in all): build rules and names, every topping changes the 3D model, the
+    kitchen flow for both foods, saved creations, the whole co-host flow on two pages (invite card, seats, shared food, bites,
+    reactions, separate ratings, stars told both ways), the host leaving first, "No thanks" and its rest, a busy friend, the
+    friend's page reloading mid-review, and raw-socket checks of every table rule on the server.
+  - Draw calls: kitchen 45, a table for two 82 / 83, a fully loaded creation is 1 draw call and under 2,800 triangles.
+
+- [x] **Phase 4 reviewer pass (Oct 10 2026)** — kid-safety-reviewer found no free text between players, no brand or
+  tap-target problems and no way for one player to act on another's table, but four things to fix, all fixed:
+  - Invite cards could be used to pester: asking and taking it back in a loop, re-asking after a timeout, or reconnecting
+    to wipe the rest. See "No pestering" above (rests for take-backs and timeouts, growing rests, the per-player card limit).
+  - Asking, tapping "Never mind" and asking again before the server had answered could leave the host and the server
+    disagreeing about which invite was live. The game now matches the server's replies to its invites in order.
+  - Only the second to rate was told the other's stars. The first now stays to see them.
+  - A friend's bite that was waiting its turn could go on eating the grown-up's food after the friend left. It is dropped now.
+  - Also added: a friend who says yes but never sits down gives the chair back after 10 s.
+
 ## Next (ideas-v2.md)
-- Phase 4: build-your-own pizza/sundae, friend as co-host
+- All four phases of `ideas-v2.md` are built.
 - Older ideas: background music toggle, pinch-to-zoom camera
 
 ## Known issues
@@ -188,6 +243,13 @@
   for menus; they predate Phase 2 and may show as boxes on iPads stuck on old iOS.
 - Scrapbook lines show the food name, emoji and mood exactly as saved on this device (length-capped, inserted as text).
   They never leave the device.
+- A co-host joins before the food is chosen. There is no way to join a review that has already started.
+- Invite rests are remembered per connection. A player who reloads can ask a friend who said no straight away, but still only
+  until that friend's card limit is reached (3 cards, then one every 30 s). Towns are private by link, so this is among friends.
+- At a table for two each device animates the other player's bites from messages, so the food left on the friend's plate can
+  be a bite out for a moment on a slow connection. Each player's own plate, bites and rating are always their own.
+- The friend who co-hosts does not see the sushi belt or the kitchen while the host chooses, only the "is picking the food" screen.
+- Two players with the same preset name look the same in the friend list (names are picked from 256 combinations).
 
 ## Hosting attempt (Grok Bot, Oct 9 2026)
 - Tried no-account Cloudflare quick tunnel: box network blocks Cloudflare edge (QUIC and TCP 7844). No ssh client for localhost.run.

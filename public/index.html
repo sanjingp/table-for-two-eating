@@ -52,6 +52,15 @@
       <span id="race-dist" class="race-dist"></span>
     </div>
 
+    <!-- a friend asks you to co-host their review (preset names and buttons only) -->
+    <div id="co-invite" class="co-invite hidden" role="dialog" aria-label="Co-host invite">
+      <div id="co-invite-text" class="co-invite-text"></div>
+      <div class="co-invite-actions">
+        <button id="co-invite-yes" class="btn green">👍 Yes, let's go!</button>
+        <button id="co-invite-no" class="btn white small">No thanks</button>
+      </div>
+    </div>
+
     <div id="joystick-zone">
       <div id="joystick-base"><div id="joystick-knob"></div></div>
       <div class="joystick-hint">Drag to walk!</div>
@@ -96,8 +105,29 @@
       <div id="order-menu" class="menu-grid"></div>
       <div class="order-actions">
         <button id="order-surprise" class="btn purple surprise" aria-label="Mystery Plate: surprise me"><span class="dice">🎲</span> Surprise me!</button>
+        <button id="order-cohost" class="btn yellow small cohost-btn hidden">👯 Invite a co-host</button>
         <button id="order-belt" class="btn teal small hidden">🍣 Back to the belt</button>
         <button id="order-leave" class="btn white small">🚪 Go back outside</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== Build your own (the food is built on the 3D plate) ===================== -->
+  <section id="screen-build" class="screen hidden" aria-label="Build your own">
+    <div id="build-title" class="belt-title"></div>
+    <div class="build-controls">
+      <div class="build-row">
+        <span id="build-base-label" class="build-label"></span>
+        <div id="build-bases" class="build-chips" role="group"></div>
+      </div>
+      <div class="build-row">
+        <span id="build-count" class="build-label"></span>
+        <div id="build-toppings" class="build-chips" role="group"></div>
+      </div>
+      <div class="build-row actions">
+        <button id="build-back" class="btn white small">📋 Back to the menu</button>
+        <button id="build-random" class="btn purple small">🎲 Mix it up!</button>
+        <button id="build-done" class="btn green">🎬 Review it!</button>
       </div>
     </div>
   </section>
@@ -111,7 +141,28 @@
         <button id="belt-fast" class="btn white small">🐇 Fast</button>
       </div>
       <button id="belt-skip" class="btn purple small">📋 Skip to the menu</button>
+      <button id="belt-cohost" class="btn yellow small cohost-btn hidden">👯 Invite a co-host</button>
       <button id="belt-leave" class="btn white small">🚪 Go back outside</button>
+    </div>
+  </section>
+
+  <!-- ===================== Friend as co-host: pick a friend (preset names only) ===================== -->
+  <section id="screen-cohost" class="screen dim hidden" aria-label="Invite a co-host">
+    <div class="card cohost-card">
+      <h2>👯 Invite a co-host</h2>
+      <p id="cohost-sub" class="sub"></p>
+      <div id="cohost-friends" class="cohost-friends"></div>
+      <div id="cohost-waiting" class="cohost-waiting hidden"><span class="cohost-clock">⏳</span><span id="cohost-waiting-text"></span></div>
+      <button id="cohost-close" class="btn white small">Close</button>
+    </div>
+  </section>
+
+  <!-- ===================== Friend as co-host: waiting while the host picks the food ===================== -->
+  <section id="screen-wait" class="screen hidden" aria-label="Your friend is picking the food">
+    <div id="wait-text" class="belt-title"></div>
+    <div class="belt-controls">
+      <div id="wait-emotes" class="review-row"></div>
+      <button id="wait-leave" class="btn white small">🚪 Go back outside</button>
     </div>
   </section>
 
@@ -122,6 +173,7 @@
       <i class="vf-corner tl"></i><i class="vf-corner tr"></i><i class="vf-corner bl"></i><i class="vf-corner br"></i>
       <div class="vf-rec"><span class="rec-dot"></span>REC <span id="rec-time">00:00</span></div>
       <div class="vf-title">🎬 <span id="vf-show">Table for Two</span> · <span id="vf-rest"></span></div>
+      <div id="vf-cohost" class="vf-cohost hidden"></div>
       <div class="vf-battery">🔋 <span>HD</span></div>
       <div class="vf-focus"></div>
       <div id="comic-pop" class="comic-pop hidden" aria-hidden="true"></div>
