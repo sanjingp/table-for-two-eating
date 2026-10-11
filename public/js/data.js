@@ -207,7 +207,7 @@ export const RESTAURANTS = [
       { id: 'veggiesub', name: 'Veggie Sub', emoji: '🥖', blurb: 'Lots of crunchy veggies' },
       { id: 'turkeysub', name: 'Turkey Sub', emoji: '🥪', blurb: 'A classic!' },
       { id: 'cookie', name: 'Cookie', emoji: '🍪', blurb: 'Warm & gooey' },
-      { id: 'juice', name: 'Apple Juice', emoji: '🧃', blurb: 'Sip sip!' },
+      { id: 'juice', name: 'Apple Juice', emoji: '🍏', blurb: 'Sip sip!' },
     ],
   },
   {
@@ -292,6 +292,15 @@ export const HAT_INFO = {
   shades: { label: 'Sunglasses', icon: '🕶️' },
 };
 
+// Pet sidekicks (ids in schema.js PETS). Free to pick in the closet; models in pet.js.
+export const PET_INFO = {
+  none: { label: 'No pet', icon: '🚫' },
+  puppy: { label: 'Puppy', icon: '🐶' },
+  kitten: { label: 'Kitten', icon: '🐱' },
+  dino: { label: 'Dino', icon: '🦖' },
+  dragon: { label: 'Dragon', icon: '🐉' },
+};
+
 // Sticker passport badges. `kind` says what is counted (see passport.js):
 // 'stickers' = different restaurants reviewed, 'menu' = every food tried at one restaurant.
 export const BADGES = [
@@ -329,5 +338,93 @@ export const MOODS = ['😍', '🤩', '😋', '🙂', '😐', '🤢'];
 export const COHOST = {
   hair: '#3b2417', hairStyle: 'short', eyes: '#6b4423', top: 'tshirt', topColor: '#3a86ff',
   jacket: 'none', jacketColor: '#5b8bd6', bottom: 'pants', bottomColor: '#33415c', shoes: 'sneakers', shoesColor: '#ffffff',
-  hat: 'none',
+  hat: 'none', pet: 'none',
 };
+
+// ---------------------------------------------------------------- Phase 3: missions, hunt, camera, dance
+// Which foods count as what for reviewer missions and comic words (ids from the menus above).
+export const FOOD_TAGS = {
+  crunchy: ['chips', 'taco', 'nachos', 'nuggets', 'wafflefries', 'fries', 'apples', 'cucumberroll', 'samosa', 'falafel',
+    'popcornshrimp', 'fishchips', 'corndog', 'twists', 'guac', 'garlicbread', 'eggwaffle', 'gyoza'],
+  sweet: ['cookie', 'icecream', 'mochi', 'sprinkledonut', 'donutholes', 'cinnamonroll', 'cocoa', 'sundae', 'bananasplit',
+    'strawberrycone', 'shavedice', 'pancakes', 'waffles', 'twists', 'shake', 'lassi', 'cornbread', 'smoothie'],
+  drink: ['bobatea', 'smoothie', 'cocoa', 'oj', 'lassi', 'shake', 'juice'],
+  cheesy: ['burger', 'cheesepizza', 'pepperonipizza', 'quesadilla', 'nachos', 'mac', 'bbqmac', 'ravioli', 'hamsub'],
+  noodles: ['ramen', 'noodles', 'spaghetti'],
+};
+
+// Reviewer missions: picture cards in the scrapbook, three at a time (rules in missions.js).
+// `kind` says what a review must be to count: 'tag' (FOOD_TAGS), 'react' (a bite reaction),
+// 'mystery' (a Mystery Plate), 'new' (a food never reviewed before), 'stars' (5 stars) or 'any'.
+// `need` is how many; `each` makes them count once per restaurant ('rid') or per food ('fid').
+export const MISSIONS = [
+  { id: 'crunchy', pics: '🔍🥨', title: 'Find something crunchy', kind: 'tag', tag: 'crunchy', need: 1 },
+  { id: 'three', pics: '🏠🏠🏠', title: 'Review at 3 different restaurants', kind: 'any', each: 'rid', need: 3 },
+  { id: 'cold', pics: '🥶', title: 'Get a brain freeze', kind: 'react', react: 'cold', need: 1 },
+  { id: 'sweet', pics: '🍩🍦🍪', title: 'Review 3 sweet treats', kind: 'tag', tag: 'sweet', each: 'fid', need: 3 },
+  { id: 'mystery', pics: '🎲', title: 'Taste a Mystery Plate', kind: 'mystery', need: 1 },
+  { id: 'new', pics: '❓🍴', title: 'Review 2 foods you never tried', kind: 'new', need: 2 },
+  { id: 'spicy', pics: '🌶️🔥', title: 'Try something spicy', kind: 'react', react: 'spicy', need: 1 },
+  { id: 'drink', pics: '🥤🥤', title: 'Sip 2 different drinks', kind: 'tag', tag: 'drink', each: 'fid', need: 2 },
+  { id: 'stars', pics: '⭐⭐⭐⭐⭐', title: 'Give a 5 star review', kind: 'stars', need: 1 },
+  { id: 'cheesy', pics: '🧀🧀', title: 'Find 2 cheesy foods', kind: 'tag', tag: 'cheesy', each: 'fid', need: 2 },
+  { id: 'noodles', pics: '🍜', title: 'Slurp some noodles', kind: 'tag', tag: 'noodles', need: 1 },
+  { id: 'sour', pics: '🍋😖', title: 'Pucker up for something sour', kind: 'react', react: 'sour', need: 1 },
+];
+export const MISSION_SLOTS = 3;
+
+// Finished missions add up to a reviewer rank (shown on the missions page).
+export const RANKS = [
+  { at: 0, name: 'Rookie Reviewer', emoji: '🌱' },
+  { at: 2, name: 'Snack Scout', emoji: '🔍' },
+  { at: 5, name: 'Taste Buddy', emoji: '😋' },
+  { at: 9, name: 'Food Critic', emoji: '🎩' },
+  { at: 14, name: 'Star Reviewer', emoji: '🌟' },
+  { at: 20, name: 'Yummy Town Legend', emoji: '🏆' },
+];
+
+// Hidden ingredient hunt: giant ingredients to find around town (models in ingredients.js).
+// Each hunt hides six of them; finding all six cooks a silly recipe sticker named from the words below.
+export const INGREDIENTS = [
+  { id: 'tomato', name: 'Tomato', emoji: '🍅' },
+  { id: 'cheese', name: 'Cheese', emoji: '🧀' },
+  { id: 'carrot', name: 'Carrot', emoji: '🥕' },
+  { id: 'mushroom', name: 'Mushroom', emoji: '🍄' },
+  { id: 'egg', name: 'Egg', emoji: '🥚' },
+  { id: 'banana', name: 'Banana', emoji: '🍌' },
+  { id: 'strawberry', name: 'Strawberry', emoji: '🍓' },
+  { id: 'broccoli', name: 'Broccoli', emoji: '🥦' },
+];
+export const RECIPE_WORDS = ['Wobbly', 'Giant', 'Jiggly', 'Upside-Down', 'Sparkly', 'Triple', 'Mega', 'Squishy', 'Bouncy', 'Rainbow'];
+export const RECIPE_DISHES = [
+  { name: 'Stew', emoji: '🍲' }, { name: 'Pie', emoji: '🥧' }, { name: 'Pizza', emoji: '🍕' }, { name: 'Sundae', emoji: '🍨' },
+  { name: 'Tacos', emoji: '🌮' }, { name: 'Pancakes', emoji: '🥞' }, { name: 'Smoothie', emoji: '🍹' }, { name: 'Sandwich', emoji: '🥪' },
+];
+// Picture hints for where an ingredient hides.
+export const HUNT_PLACES = {
+  grass: { icon: '🌼', label: 'Out in the grass' },
+  gap: { icon: '🏠🏠', label: 'Between two restaurants' },
+  back: { icon: '🏠👀', label: 'Behind a restaurant' },
+};
+
+// Comic camera: preset frames and episode titles for the review viewfinder (saved with each review),
+// and the comic words that pop up while filming. Local to the device, never sent to friends.
+export const VF_FRAMES = [
+  { id: 'classic', label: 'Classic', icon: '📷' },
+  { id: 'rainbow', label: 'Rainbow', icon: '🌈' },
+  { id: 'stars', label: 'Stars', icon: '⭐' },
+  { id: 'hearts', label: 'Hearts', icon: '💖' },
+  { id: 'comic', label: 'Comic', icon: '💥' },
+  { id: 'movie', label: 'Movie', icon: '🎞️' },
+];
+export const VF_TITLES = ['Table for Two', 'Snack Attack!', 'Yum or Yuck?', 'The Big Bite', 'Taste Test Time', 'Five Star Feast', 'Munch Madness'];
+// Keyed by FOOD_TAGS tag (a bite of that kind of food), bite reaction or review emote.
+export const COMIC_WORDS = {
+  bite: ['CHOMP!', 'MUNCH!', 'NOM NOM!'],
+  crunchy: ['CRUNCH!'], drink: ['SLURP!'], noodles: ['SLURP!'],
+  spicy: ['HOT HOT!'], sour: ['ZING!'], cold: ['BRRR!'], yuck: ['EWW!'],
+  yum: ['YUM!'], wow: ['WOW!'], thumbs: ['NICE!'], silly: ['BOING!'], kiss: ['MWAH!'], heart: ['LOVE IT!'],
+};
+
+// Plaza dance party: the moves are ordinary emotes, so friends see them (rules in dance.js).
+export const DANCE_MOVES = ['dance', 'jump', 'heart'];

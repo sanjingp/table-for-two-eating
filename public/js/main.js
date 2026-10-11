@@ -1,21 +1,31 @@
 // Table for Two Eating — game bootstrap, modes and main loop.
 import * as THREE from '../vendor/three.module.js';
-import { LINES, isValidRoom, repairAppearance, ROOM_WORDS_A, ROOM_WORDS_B } from './schema.js';
-import { REVIEW_EMOTES, REVIEW_LINES, PLAZA_EMOTES, PLAZA_LINES, COHOST, FOOD_REACTIONS, MYSTERY_TWISTS } from './data.js';
-import { $, clamp, damp, lerpAngle, pick, randInt, emojiTexture, smooth01 } from './util.js';
+import { LINES, RACE, RACE_LINE, isValidRoom, repairAppearance, raceDoorSpot, pickRaceTarget, ROOM_WORDS_A, ROOM_WORDS_B } from './schema.js';
+import {
+  REVIEW_EMOTES, REVIEW_LINES, PLAZA_EMOTES, PLAZA_LINES, COHOST, FOOD_REACTIONS, MYSTERY_TWISTS, FOOD_TAGS, COMIC_WORDS,
+  VF_FRAMES, VF_TITLES, DANCE_MOVES, EMOTE_INFO, INGREDIENTS,
+} from './data.js';
+import { $, $$, clamp, damp, lerpAngle, pick, randInt, emojiTexture, smooth01 } from './util.js';
 import { Character } from './character.js';
 import { buildWorld, RING_RADIUS, WORLD_RADIUS, INTERIOR_ORIGIN } from './world.js';
 import { createFood } from './food.js';
 import { SushiBelt } from './belt.js';
 import { passportProgress } from './passport.js';
+import { HuntField } from './ingredients.js';
+import { huntLayout, recipeFor, HUNT_SIZE } from './hunt.js';
+import { applyReview, menuGoal, missionCards, missionRank } from './missions.js';
+import { DanceRound, DANCE } from './dance.js';
 import { Controls } from './controls.js';
 import { Net } from './net.js';
 import { sfx, unlockAudio, setMuted, speak } from './audio.js';
 import { initConfetti, confetti } from './confetti.js';
-import { loadAppearance, saveAppearance, loadReviews, addReview, loadSettings, saveSettings, reviewStats } from './storage.js';
+import {
+  loadAppearance, saveAppearance, loadReviews, addReview, loadSettings, saveSettings, reviewStats, loadQuests, saveQuests, mergeQuests,
+} from './storage.js';
 import * as UI from './ui.js';
 
 const WALK_SPEED = 7;
+const SCOOT_SPEED = 11.5; // on the scooter
 const GRAVITY = 24;
 const BOUNCE_SPEED = 13.5; // straight up off a bounce pad: about two reviewers high
 const SEND_INTERVAL = 0.1; // 10 Hz
@@ -67,6 +77,7 @@ const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 22
 
 const world = buildWorld(scene);
 const belt = new SushiBelt(world.interior.group);
+const hunt = new HuntField(scene);
 const controls = new Controls({ zone: $('#joystick-zone'), base: $('#joystick-base'), knob: $('#joystick-knob'), canvas });
 initConfetti($('#confetti'));
 
@@ -92,8 +103,18 @@ const S = {
   nearSlide: false,
   grab: null, // a conveyor-belt plate flying to the table
   progress: null, // sticker passport: stickers, badges and unlocked hats
-  newSticker: null,
-  rewards: [], // badges waiting to be celebrated in the plaza
+  cheers: [], // little celebrations (new sticker, mission complete) waiting for the plaza: { text, confetti }
+  rewards: [], // prize cards waiting for the plaza: { type: 'badge' | 'recipe' | 'dance', ... }
+  quests: loadQuests(), // personal: ingredient hunt, reviewer missions, best dance score
+  huntItems: [], // this hunt's six ingredients and where they hide
+  hinted: new Set(), // ingredients the "something is close by" hint already fired for
+  scooter: false,
+  race: null, // { r, spot, t0, state: 'count' | 'go', solo } while a race is on
+  raceReadyAt: 0,
+  lastRace: null,
+  nearDance: false,
+  dance: null, // { round, t0, beat, shown } during a dance party round
+  lastDance: null,
   restaurant: null,
   item: null,
   plazaPos: new THREE.Vector3(),
@@ -172,7 +193,7 @@ function pushState(e, st) {
   if (e.buf.length > 30) e.buf.shift();
   // a friend starting to go up again is a bounce: squash the pad they are on
   const rising = st.y > e.lastY + 0.01;
-  if (st.an === 'air' && rising && !e.rising) {
+  if ((st.an === 'air' || st.an === 'scoot') && rising && !e.rising) {
     const pad = world.padAt(st.x, st.z, 1.2);
     if (pad) world.bouncePad(pad);
   }
@@ -180,7 +201,7 @@ function pushState(e, st) {
   e.lastY = st.y;
   if (st.an !== e.an) {
     e.an = st.an;
-    e.char.action = st.an === 'air' || st.an === 'slide' ? st.an : null;
+    e.char.action = st.an === 'air' || st.an === 'slide' || st.an === 'scoot' ? st.an : null;
     e.char.holdCamera(st.an === 'review');
     if (st.an === 'review') e.char.showBubble(emojiTexture('🎬'), 0.7, 3600);
     else e.char.clearBubble();
@@ -233,17 +254,20 @@ function updateNetChip() {
   else el.textContent = '🟡 Playing solo';
 }
 
+let emotesSeen = 0; // emotes received from friends (for tests)
 const net = new Net(room, {
   onStatus: updateNetChip,
   onReset: () => {
     for (const id of [...remotes.keys()]) removeRemote(id);
     updateNetChip();
+    if (S.race && !S.race.solo) clearRace(); // the server was running it
   },
-  onWelcome: (peers) => {
+  onWelcome: (peers, race) => {
     for (const id of [...remotes.keys()]) removeRemote(id);
     peers.forEach(addRemote);
     updateNetChip();
     sendState(true);
+    if (race) beginRace(race.r, { msToGo: race.ms }); // a race was already on: join in
   },
   onJoin: (p) => {
     if (!addRemote(p)) return;
@@ -261,7 +285,12 @@ const net = new Net(room, {
     const e = remotes.get(id);
     if (e) pushState(e, st);
   },
-  onEmote: (id, em) => remotes.get(id)?.char.playEmote(em),
+  onEmote: (id, em) => {
+    emotesSeen++;
+    remotes.get(id)?.char.playEmote(em);
+  },
+  onRace: (id, rid) => beginRace(rid, { starter: id }),
+  onWin: (id) => finishRace(id === null ? null : id === net.id ? 'me' : id),
   onSay: (id, l) => remotes.get(id)?.char.say(LINES[l]),
   onAppearance: (id, app) => {
     const e = remotes.get(id);
@@ -282,6 +311,7 @@ function sendState(force = false) {
   let an = player.speed > 0.1 ? 'walk' : 'idle';
   if (inside) an = 'review';
   else if (S.ride) an = S.ride.sliding ? 'slide' : 'walk';
+  else if (S.scooter && S.mode === 'plaza') an = 'scoot';
   else if (y > 0.05) an = 'air';
   const key = `${pos.x.toFixed(2)},${pos.z.toFixed(2)},${y.toFixed(2)},${ry.toFixed(2)},${an}`;
   const now = performance.now();
@@ -309,11 +339,15 @@ function fade(fn) {
     const f = $('#fade');
     f.classList.add('on');
     setTimeout(() => {
-      fn();
-      requestAnimationFrame(() => {
-        f.classList.remove('on');
-        resolve();
-      });
+      try {
+        fn();
+      } finally {
+        // whatever happens in there, never leave the screen white
+        requestAnimationFrame(() => {
+          f.classList.remove('on');
+          resolve();
+        });
+      }
     }, 360);
   });
 }
@@ -359,12 +393,13 @@ function updatePlaza(dt) {
   S.camYaw -= look.x * 0.006;
   S.camPitch = clamp(S.camPitch + look.y * 0.003, 0.15, 0.95);
 
-  const inp = controls.move2;
+  const inp = S.race?.state === 'count' ? STILL : controls.move2; // on your marks: nobody moves before GO
   fwd.set(-Math.sin(S.camYaw), 0, -Math.cos(S.camYaw));
   right.set(Math.cos(S.camYaw), 0, -Math.sin(S.camYaw));
   move.copy(right).multiplyScalar(inp.x).addScaledVector(fwd, inp.y);
   const mag = Math.min(1, move.length());
-  S.vel.lerp(move.multiplyScalar(WALK_SPEED), damp(12, dt));
+  // the scooter is faster, and glides a little before it stops
+  S.vel.lerp(move.multiplyScalar(S.scooter ? SCOOT_SPEED : WALK_SPEED), damp(S.scooter ? 6 : 12, dt));
   const pos = player.root.position;
   pos.addScaledVector(S.vel, dt);
   world.resolve(pos);
@@ -373,15 +408,21 @@ function updatePlaza(dt) {
   player.speed = Math.min(1, S.vel.length() / WALK_SPEED);
   updateHeight(dt, true);
 
-  // Near a door, or at the foot of the slide?
+  // Near a door, at the foot of the slide, or on the dance floor?
   let near = null;
   for (const r of world.restaurants) if (Math.hypot(pos.x - r.door.x, pos.z - r.door.z) < 2.6) near = r;
   const foot = world.slide.foot;
   const nearSlide = !near && S.y === 0 && Math.hypot(pos.x - foot.x, pos.z - foot.z) < 1.7;
-  if (near !== S.near || nearSlide !== S.nearSlide) {
-    setNear(near, nearSlide);
-    if (near || nearSlide) sfx.sparkle();
+  const floor = world.dance;
+  const nearDance = !near && !nearSlide && S.y === 0 && Math.hypot(pos.x - floor.x, pos.z - floor.z) < floor.r - 0.2;
+  if (near !== S.near || nearSlide !== S.nearSlide || nearDance !== S.nearDance) {
+    setNear(near, nearSlide, nearDance);
+    if (near || nearSlide || nearDance) sfx.sparkle();
   }
+  // walked into a giant ingredient?
+  const found = hunt.collect(pos);
+  if (found) collectIngredient(found);
+  else hintNearby(pos);
   followCamera(dt);
 }
 
@@ -402,18 +443,35 @@ function updateHeight(dt, pads) {
     if (++S.bounces === 1) UI.toast('Boing! Bounce pads make you fly! ⭐');
   }
   pos.y = S.y;
-  player.action = S.y > 0.05 ? 'air' : null;
+  player.action = S.scooter && S.mode === 'plaza' ? 'scoot' : S.y > 0.05 ? 'air' : null;
 }
 
-function setNear(near, nearSlide = false) {
+// What the big button does at each kind of spot (anywhere else it jumps).
+const SPOTS = {
+  door: { label: 'Go in!', icon: '🚪', text: '🚪 Go in!', aria: 'Go in' },
+  slide: { label: 'Slide!', icon: '🎢', text: '🎢 Slide!', aria: 'Ride the slide', name: 'Wheee!' },
+  dance: { label: 'Dance!', icon: '💃', text: '💃 Dance!', aria: 'Start the dance party', name: 'Dance party!' },
+};
+function setNear(near, nearSlide = false, nearDance = false) {
   S.near = near;
   S.nearSlide = nearSlide;
-  UI.show('#btn-go-in', !!near || nearSlide);
-  $('#action-label').textContent = near ? 'Go in!' : nearSlide ? 'Slide!' : 'Jump';
-  $('#btn-action').firstChild.textContent = near ? '🚪' : nearSlide ? '🎢' : '⭐';
-  $('#go-in-text').textContent = nearSlide ? '🎢 Slide!' : '🚪 Go in!';
-  $('#btn-go-in').setAttribute('aria-label', nearSlide ? 'Ride the slide' : 'Go in');
-  $('#go-in-name').textContent = near ? near.name : nearSlide ? 'Wheee!' : '';
+  S.nearDance = nearDance;
+  const spot = SPOTS[near ? 'door' : nearSlide ? 'slide' : nearDance ? 'dance' : ''];
+  UI.show('#btn-go-in', !!spot);
+  $('#action-label').textContent = spot ? spot.label : 'Jump';
+  $('#btn-action').firstChild.textContent = spot ? spot.icon : '⭐';
+  $('#go-in-text').textContent = (spot || SPOTS.door).text;
+  $('#btn-go-in').setAttribute('aria-label', (spot || SPOTS.door).aria);
+  $('#go-in-name').textContent = near ? near.name : spot ? spot.name : '';
+}
+
+// ---------------------------------------------------------------- scooter
+function setScooter(on) {
+  S.scooter = on;
+  const b = $('#btn-scooter');
+  b.classList.toggle('on', on);
+  b.setAttribute('aria-pressed', String(on));
+  b.lastChild.textContent = on ? 'Hop off' : 'Scooter';
 }
 
 // ---------------------------------------------------------------- slide
@@ -506,6 +564,7 @@ UI.buildEmotePanel(PLAZA_EMOTES, PLAZA_LINES, (e) => {
 }, (i) => {
   UI.show('#emote-panel', false);
   doSay(i);
+  if (i === RACE_LINE) requestRace();
 });
 
 // HUD buttons. Action/Emote use pointerdown so they work while a thumb is on the joystick.
@@ -520,11 +579,12 @@ function onPress(el, fn) {
   el.addEventListener('pointerleave', up);
   el.addEventListener('pointercancel', up);
 }
-/** The big yellow button: go in at a door, ride the slide at its stairs, otherwise jump. */
+/** The big yellow button: go in at a door, ride the slide at its stairs, dance on the dance floor, otherwise jump. */
 function doAction(jump = true) {
   if (S.mode !== 'plaza') return;
   if (S.near) enterRestaurant(S.near);
   else if (S.nearSlide) startSlide();
+  else if (S.nearDance) startDance();
   else if (jump && S.y === 0) doEmote('jump');
 }
 onPress($('#btn-action'), () => doAction());
@@ -533,10 +593,20 @@ onPress($('#btn-emote'), () => {
   const p = $('#emote-panel');
   UI.show(p, p.classList.contains('hidden'));
 });
+onPress($('#btn-scooter'), () => {
+  if (S.mode !== 'plaza') return;
+  unlockAudio();
+  setScooter(!S.scooter);
+  if (S.scooter) sfx.scoot();
+  else sfx.pop();
+  sendState(true);
+});
 $('#btn-go-in').addEventListener('click', () => doAction(false));
 $('#btn-me').addEventListener('click', () => openStudio('me'));
 $('#btn-closet').addEventListener('click', () => openStudio('closet'));
-$('#btn-reviews').addEventListener('click', openBook);
+$('#btn-reviews').addEventListener('click', () => openBook());
+$('#btn-hunt').addEventListener('click', () => openBook('hunt'));
+$('#btn-missions').addEventListener('click', () => openBook('missions'));
 $('#btn-invite').addEventListener('click', openInvite);
 $('#btn-sound').addEventListener('click', () => {
   S.settings.muted = !S.settings.muted;
@@ -630,6 +700,7 @@ function clearYaw(p, dist) {
 
 function closeStudio() {
   S.studio = null;
+  player.petSpot = null;
   UI.show('#screen-studio', false);
   setViewShift(0, 0);
   S.mode = 'plaza';
@@ -637,6 +708,7 @@ function closeStudio() {
   player.root.rotation.y = S.facing;
 }
 
+const studioPetSpot = { x: 0, z: 0, yaw: 0 };
 function updateStudio(dt) {
   const look = controls.takeLook();
   S.spin += look.x * 0.012;
@@ -646,6 +718,11 @@ function updateStudio(dt) {
   const dist = portrait ? 5.6 : 3.8;
   player.root.rotation.y = S.studioYaw + S.spin;
   player.speed = 0;
+  // the pet sits beside the reviewer (on the camera's left), looking at the camera
+  studioPetSpot.x = p.x - Math.cos(S.studioYaw) * 0.95;
+  studioPetSpot.z = p.z + Math.sin(S.studioYaw) * 0.95;
+  studioPetSpot.yaw = S.studioYaw;
+  player.petSpot = studioPetSpot;
   camGoal.set(p.x + Math.sin(S.studioYaw) * dist, 1.3, p.z + Math.cos(S.studioYaw) * dist);
   camera.position.lerp(camGoal, damp(6, dt));
   lookGoal.set(p.x, 1.0, p.z);
@@ -683,6 +760,7 @@ function enterRestaurant(r) {
     S.y = S.vy = 0;
     world.interior.setRestaurant(r);
     seat(player, 0);
+    player.petSpot = TABLE_PET_SPOT; // the pet sits on the floor next to the table
     player.labelSprite.visible = false;
     cohost.setAppearance({ ...S.app, ...COHOST });
     cohost.root.visible = true;
@@ -701,10 +779,14 @@ function enterRestaurant(r) {
   });
 }
 
-/** The menu card. */
+const TABLE_PET_SPOT = { x: INTERIOR_ORIGIN.x - 2.25, z: INTERIOR_ORIGIN.z + 0.35, yaw: 0.25 };
+
+/** The menu card. Foods that would move a mission along get a 🎯. */
 function openOrder() {
   const r = S.restaurant;
-  UI.buildOrder(r, (item) => !S.rolling && orderFood(item));
+  const tried = new Set(S.reviews.filter((rv) => rv.rid === r.id).map((rv) => rv.fid));
+  const isGoal = (item) => menuGoal(S.quests.missions, { rid: r.id, fid: item.id, react: item.react || null, isNew: !tried.has(item.id) });
+  UI.buildOrder(r, (item) => !S.rolling && orderFood(item), isGoal);
   UI.show('#order-belt', !!r.belt);
   UI.show('#screen-belt', false);
   UI.show('#screen-order', true);
@@ -814,7 +896,7 @@ function orderFood(item) {
 
 // Mystery Plate: a random item from this menu, usually with a silly twist (2 times in 3).
 function rollMystery(r) {
-  const base = pick(r.menu);
+  const base = { ...pick(r.menu), mystery: true };
   if (randInt(3) === 2) return base;
   const twist = pick(MYSTERY_TWISTS);
   return { ...base, name: `${twist.word} ${base.name}`, emoji: twist.emoji, react: twist.react, tint: twist.tint, twist: twist.id };
@@ -849,6 +931,7 @@ function startReview() {
   S.recStart = performance.now();
   player.holdCamera(true);
   $('#vf-rest').textContent = S.restaurant.name;
+  UI.setViewfinder(S.settings.frame, S.settings.title);
   $('#btn-talk').textContent = `🗣️ Talk out loud: ${S.settings.speak ? 'ON' : 'OFF'}`;
   UI.buildReviewControls(REVIEW_EMOTES, REVIEW_LINES, { onEmote: reviewEmote, onBite: () => bite(player), onSay: reviewSay });
   UI.show('#screen-review', true);
@@ -867,8 +950,31 @@ function reviewEmote(e) {
   player.playEmote(e);
   net.sendEmote(e);
   sfx.emote();
+  comic(e);
   cohostReact();
 }
+
+// ---------------------------------------------------------------- comic camera
+/** Burst a comic word onto the viewfinder. `kind` is a key of COMIC_WORDS: a kind of bite, a reaction or an emote. */
+function comic(kind) {
+  if (S.mode === 'review' && COMIC_WORDS[kind]) UI.comicPop(pick(COMIC_WORDS[kind]));
+}
+/** CRUNCH! for crunchy food, SLURP! for drinks and noodles, otherwise a plain CHOMP! */
+const biteKind = (item) => ['crunchy', 'drink', 'noodles'].find((tag) => FOOD_TAGS[tag].includes(item.id)) || 'bite';
+
+$('#btn-frame').addEventListener('click', () => {
+  const i = VF_FRAMES.findIndex((f) => f.id === S.settings.frame);
+  S.settings.frame = VF_FRAMES[(i + 1) % VF_FRAMES.length].id;
+  saveSettings(S.settings);
+  UI.setViewfinder(S.settings.frame, S.settings.title);
+  sfx.pop();
+});
+$('#btn-title').addEventListener('click', () => {
+  S.settings.title = (S.settings.title + 1) % VF_TITLES.length;
+  saveSettings(S.settings);
+  UI.setViewfinder(S.settings.frame, S.settings.title);
+  sfx.pop();
+});
 
 function reviewSay(i) {
   player.say(LINES[i]);
@@ -900,6 +1006,7 @@ function bite(who) {
     sfx.chomp();
     food.scale.multiplyScalar(0.78);
     if (isPlayer) {
+      comic(biteKind(S.item));
       S.bites++;
       if (S.bites >= 3) {
         food.visible = false;
@@ -922,6 +1029,7 @@ function foodReaction(who) {
   who.playEmote(kind);
   if (who !== player) return;
   net.sendEmote(kind);
+  comic(kind);
   (sfx[kind] || sfx.sparkle)();
   if (S.bites === 1) UI.toast(FOOD_REACTIONS[kind].toast);
 }
@@ -947,11 +1055,20 @@ $('#btn-review-done').addEventListener('click', () => {
 function saveRating(stars, mood) {
   const r = S.restaurant;
   const before = S.progress;
-  S.reviews = addReview(S.reviews, { rid: r.id, fid: S.item.id, food: S.item.name, emoji: S.item.emoji, mood, stars, ts: Date.now() });
+  const isNew = !S.reviews.some((rv) => rv.rid === r.id && rv.fid === S.item.id);
+  S.reviews = addReview(S.reviews, {
+    rid: r.id, fid: S.item.id, food: S.item.name, emoji: S.item.emoji, mood, stars, ts: Date.now(),
+    frame: S.settings.frame, title: S.settings.title, // the comic camera look it was filmed with
+  });
   S.progress = passportProgress(S.reviews);
-  // passport prizes are handed out once we are back in the plaza
-  if (!before.stickers.includes(r.id) && S.progress.stickers.includes(r.id)) S.newSticker = r;
-  S.rewards.push(...S.progress.badges.filter((b) => b.earned && !before.badges.find((x) => x.id === b.id).earned));
+  // passport prizes and finished missions are celebrated once we are back in the plaza
+  if (!before.stickers.includes(r.id) && S.progress.stickers.includes(r.id)) S.cheers.push({ text: `🎫 New sticker: ${r.sticker} ${r.name}!` });
+  syncQuests();
+  const missions = applyReview(S.quests.missions, { rid: r.id, fid: S.item.id, stars, react: S.item.react || null, mystery: !!S.item.mystery, isNew });
+  S.quests.missions = missions.state;
+  saveQuests(S.quests);
+  for (const m of missions.completed) S.cheers.push({ text: `🎯 Mission complete: ${m.title}! ⭐`, confetti: true });
+  S.rewards.push(...S.progress.badges.filter((b) => b.earned && !before.badges.find((x) => x.id === b.id).earned).map((badge) => ({ type: 'badge', badge })));
   refreshStars();
   sfx.fanfare();
   confetti(stars >= 4 ? 220 : 140);
@@ -983,6 +1100,7 @@ function leaveRestaurant() {
     UI.show('#screen-belt', false);
     cohost.root.visible = false;
     player.pose = 'stand';
+    player.petSpot = null;
     player.labelSprite.visible = true;
     player.holdCamera(false);
     player.setHeldItem(null);
@@ -1005,50 +1123,75 @@ function leaveRestaurant() {
   }).then(celebrate);
 }
 
-// ---------------------------------------------------------------- passport prizes
-/** Back in the plaza: show off a new sticker, then any new badges (each unlocks a hat). */
+// ---------------------------------------------------------------- prizes
+/** Back in the plaza: cheer for a new sticker and finished missions one at a time, then show any prize cards. */
 function celebrate() {
-  if (S.mode !== 'plaza') return;
-  const r = S.newSticker;
-  S.newSticker = null;
-  if (r) {
-    sfx.sparkle();
-    UI.toast(`🎫 New sticker: ${r.sticker} ${r.name}!`, 3000);
+  if (!S.cheers.length && !S.rewards.length) return;
+  if (S.mode !== 'plaza' || S.race) {
+    // busy in the closet, the scrapbook, on the slide or in a race: try again in a moment
+    // (inside a restaurant there is no need, leaving it calls celebrate again)
+    if (!S.restaurant) later(celebrate, 1200);
+    return;
   }
-  if (S.rewards.length) later(showReward, r ? 1500 : 400);
+  const cheer = S.cheers.shift();
+  if (!cheer) {
+    later(showReward, 400);
+    return;
+  }
+  sfx.sparkle();
+  if (cheer.confetti) confetti(90);
+  UI.toast(cheer.text, 3000);
+  later(celebrate, 1700);
+}
+
+/** The words on a prize card: a new badge (unlocks a hat), a silly recipe sticker, or a dance score. */
+function rewardCard(rw) {
+  if (rw.type === 'recipe') {
+    return {
+      sub: '🍳 You found all 6 giant ingredients and cooked…', emoji: rw.recipe.emoji, name: rw.recipe.name,
+      prize: `A silly recipe sticker for your scrapbook! ${rw.recipe.made}`, primary: 'Yum! 😋',
+    };
+  }
+  if (rw.type === 'dance') {
+    return {
+      sub: '💃 Dance party!', emoji: '⭐'.repeat(rw.stars), name: `You hit ${rw.hits} of ${rw.total} moves!`,
+      prize: rw.record ? 'New best score! 🎉' : `Your best: ${rw.best}`, primary: '🔁 Again!', secondary: 'Done',
+    };
+  }
+  return UI.badgeCard(rw.badge);
 }
 
 function showReward() {
   if (!S.rewards.length) return;
-  if (S.mode !== 'plaza') {
-    // busy in the closet, the scrapbook or on the slide: try again in a moment
-    // (inside a restaurant there is no need, leaving it calls celebrate again)
-    if (!S.restaurant) later(showReward, 1200);
+  if (S.mode !== 'plaza' || S.race) {
+    if (!S.restaurant) later(showReward, 1200); // a prize card never interrupts a race
     return;
   }
   S.mode = 'reward';
   player.speed = 0;
   S.vel.set(0, 0, 0);
   showHud(false);
-  UI.buildReward(S.rewards[0]);
+  UI.buildReward(rewardCard(S.rewards[0]));
   UI.show('#screen-reward', true);
   sfx.badge();
   confetti(200);
   player.playEmote('wow');
 }
 
-function closeReward(wear) {
+/** `primary` is the big button: wear the hat, or dance again. */
+function closeReward(primary) {
   if (S.mode !== 'reward') return;
-  const badge = S.rewards.shift();
+  const rw = S.rewards.shift();
   UI.show('#screen-reward', false);
   S.mode = 'plaza';
   showHud(true);
   sfx.pop();
-  if (wear) {
-    updateAppearance({ hat: badge.hat });
+  if (primary && rw.type === 'badge') {
+    updateAppearance({ hat: rw.badge.hat });
     player.playEmote('dance');
   }
-  if (S.rewards.length) later(showReward, 600);
+  if (primary && rw.type === 'dance') startDance();
+  else if (S.rewards.length) later(showReward, 600);
 }
 $('#reward-wear').addEventListener('click', () => closeReward(true));
 $('#reward-later').addEventListener('click', () => closeReward(false));
@@ -1084,16 +1227,323 @@ function updateInterior(dt, t) {
   cohost.update(dt);
 }
 
+// ---------------------------------------------------------------- race to a restaurant
+// "Wanna race?" asks the server for a race. The server picks the door, everyone gets the same
+// countdown, and the server names the winner. Playing solo, the game races the clock by itself.
+const STILL = { x: 0, y: 0 };
+let countTimer = 0;
+
+function requestRace() {
+  if (S.mode !== 'plaza') return;
+  if (S.race) {
+    UI.toast('🏁 A race is already on!');
+    return;
+  }
+  const now = performance.now();
+  if (now < S.raceReadyAt) {
+    UI.toast('Catch your breath first! 😅');
+    return;
+  }
+  S.raceReadyAt = now + 1500; // one ask at a time; the real wait starts when the race does (see beginRace)
+  if (!net.sendRace()) beginRace(pickRaceTarget([player.root.position]), { solo: true });
+}
+
+/**
+ * starter: the id of the player who started it (if known). solo: a race against the clock, judged
+ * here instead of by the server. msToGo: milliseconds until GO (less when joining a race already on).
+ */
+function beginRace(rid, { starter: starterId = null, solo = false, msToGo = RACE.countdown * 1000 } = {}) {
+  const r = world.restaurants.find((x) => x.id === rid);
+  if (!r) return;
+  const starter = starterId && starterId !== net.id ? remotes.get(starterId) : null;
+  // whoever starts a race waits a little longer than the server's own limit before starting another
+  if (solo || (starterId && starterId === net.id)) S.raceReadyAt = performance.now() + (RACE.cooldown + 1) * 1000;
+  const t0 = performance.now() - (RACE.countdown * 1000 - msToGo);
+  S.race = { r, spot: raceDoorSpot(rid), t0, state: msToGo > 0 ? 'count' : 'go', shown: 0, steps: -1, solo };
+  world.setFlag(r.door);
+  $('#race-text').textContent = `🏁 Race to ${r.name}!`;
+  UI.show('#race-banner', true);
+  UI.show('#emote-panel', false);
+  UI.toast(starter ? `🏁 ${starter.name} says: race to ${r.name}!` : `🏁 Race to ${r.name}!`, 3000);
+}
+
+function showCount(text) {
+  const el = $('#race-count');
+  el.textContent = text;
+  el.classList.remove('hidden');
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = '';
+  clearTimeout(countTimer);
+  countTimer = setTimeout(() => el.classList.add('hidden'), 900);
+}
+
+function updateRace(now) {
+  const race = S.race;
+  if (!race) return;
+  const t = (now - race.t0) / 1000 - RACE.countdown; // seconds since GO
+  const inPlaza = S.mode === 'plaza';
+  if (t < 0) {
+    const n = Math.ceil(-t);
+    if (n !== race.shown) {
+      race.shown = n;
+      if (inPlaza) {
+        showCount(String(n));
+        sfx.count();
+      }
+    }
+  } else if (race.state === 'count') {
+    race.state = 'go';
+    if (inPlaza) {
+      showCount('GO!');
+      sfx.go();
+    }
+  }
+  // the banner's arrow points the way to the door, whichever way the camera is turned
+  const p = player.root.position;
+  const dx = race.r.door.x - p.x;
+  const dz = race.r.door.z - p.z;
+  const cos = Math.cos(S.camYaw);
+  const sin = Math.sin(S.camYaw);
+  $('#race-arrow').style.transform = `rotate(${Math.atan2(dx * cos - dz * sin, -dx * sin - dz * cos).toFixed(2)}rad)`;
+  const steps = Math.round(Math.hypot(dx, dz));
+  if (steps !== race.steps) {
+    race.steps = steps;
+    $('#race-dist').textContent = `${steps} steps`;
+  }
+  if (race.solo && t >= 0 && inPlaza && Math.hypot(p.x - race.spot.x, p.z - race.spot.z) < RACE.reach) finishRace('me');
+  else if (t > RACE.timeout + (race.solo ? 0 : 4)) finishRace(null); // online the server calls time; this is the safety net
+}
+
+function clearRace() {
+  S.race = null;
+  world.setFlag(null);
+  UI.show('#race-banner', false);
+}
+
+/** who: 'me', a friend's id, or null when time ran out. */
+function finishRace(who) {
+  const race = S.race;
+  if (!race) return;
+  clearRace();
+  S.raceReadyAt = Math.max(S.raceReadyAt, performance.now() + (RACE.rest + 1) * 1000); // the town rests between races
+  S.lastRace = { rid: race.r.id, winner: who === 'me' ? 'me' : who ? remotes.get(who)?.name || 'friend' : null };
+  if (who === 'me') {
+    const secs = Math.max(0, (performance.now() - race.t0) / 1000 - RACE.countdown).toFixed(1);
+    UI.toast(`🏆 You won the race to ${race.r.name}! ${secs} seconds!`, 4200);
+    sfx.fanfare();
+    confetti(260);
+    player.playEmote('dance');
+    net.sendEmote('dance');
+  } else if (who) {
+    UI.toast(`🏁 ${remotes.get(who)?.name || 'A friend'} won the race! Good running! 👏`, 3600);
+    sfx.pop();
+  } else UI.toast('⏰ Time is up! Nobody reached the door.', 3200);
+}
+
+// ---------------------------------------------------------------- hidden ingredient hunt (personal, never sent to friends)
+function refreshQuests() {
+  $('#hunt-count').textContent = `${S.quests.hunt.found.length}/${HUNT_SIZE}`;
+}
+
+/**
+ * Call before changing S.quests: folds in anything another open tab saved since this one loaded,
+ * so saving here never undoes it. Returns true if that moved the reviewer on to a newer hunt.
+ */
+function syncQuests() {
+  const n = S.quests.hunt.n;
+  S.quests = mergeQuests(S.quests);
+  if (S.quests.hunt.n === n) return false;
+  loadHunt();
+  return true;
+}
+
+/** Hide this hunt's ingredients around town (the ones already found stay found). */
+function loadHunt() {
+  const h = S.quests.hunt;
+  S.huntItems = huntLayout(h.n, (x, z) => !world.blocked(x, z, 1.2)).map((it) => {
+    const p = world.resolve(new THREE.Vector3(it.x, 0, it.z), 0.9); // nudge it out of trees and lamps
+    return { ...INGREDIENTS.find((i) => i.id === it.id), where: it.where, x: p.x, z: p.z };
+  });
+  S.hinted.clear();
+  hunt.load(S.huntItems.filter((it) => !h.found.includes(it.id)));
+  refreshQuests();
+}
+
+function collectIngredient(it) {
+  if (syncQuests()) return; // another tab already finished this hunt: the new one has just been hidden
+  const h = S.quests.hunt;
+  if (!h.found.includes(it.id)) h.found.push(it.id);
+  sfx.found();
+  player.playEmote('wow');
+  if (h.found.length < HUNT_SIZE) {
+    saveQuests(S.quests);
+    refreshQuests();
+    UI.toast(`You found the giant ${it.emoji} ${it.name}! ${h.found.length} of ${HUNT_SIZE} 🔍`, 3000);
+    return;
+  }
+  // all six: cook the silly recipe, and hide a fresh set for the next hunt
+  S.rewards.push({ type: 'recipe', recipe: recipeFor(h.n) });
+  S.quests.hunt = { n: h.n + 1, found: [] };
+  saveQuests(S.quests);
+  loadHunt();
+  later(showReward, 900);
+}
+
+/** A sparkle and a nudge the first time the reviewer comes close to each hidden ingredient. */
+function hintNearby(pos) {
+  const { item, dist } = hunt.nearest(pos);
+  if (!item || dist > 11 || S.hinted.has(item.id)) return;
+  S.hinted.add(item.id);
+  sfx.sparkle();
+  UI.toast('✨ Something giant is hiding close by! 🔍', 2600);
+  const b = $('#btn-hunt');
+  b.classList.remove('new');
+  void b.offsetWidth;
+  b.classList.add('new');
+}
+
+// ---------------------------------------------------------------- plaza dance party
+// A short rhythm game on the dance floor. Scoring is personal; each move that lands is an
+// ordinary emote, so friends in the plaza see the dancing (and can join in on their own screen).
+UI.buildDanceButtons(DANCE_MOVES, danceTap);
+const danceTime = () => (performance.now() - S.dance.t0) / 1000;
+
+function startDance() {
+  if (S.mode !== 'plaza' || S.y > 0) return;
+  unlockAudio();
+  S.mode = 'dance';
+  S.dance = { round: new DanceRound(), t0: performance.now(), beat: -1, shown: undefined };
+  S.vel.set(0, 0, 0);
+  player.speed = 0;
+  setNear(null);
+  showHud(false);
+  S.facing = S.camYaw; // turn to face the camera
+  player.root.rotation.y = S.facing;
+  danceWord('Get ready… 🎵');
+  refreshDance();
+  UI.show('#screen-dance', true);
+  sfx.whoosh();
+  sendState(true);
+}
+
+function danceWord(text) {
+  const el = $('#dance-word');
+  el.textContent = text;
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+}
+
+function refreshDance() {
+  const { round } = S.dance;
+  $('#dance-score').textContent = `⭐ ${round.hits}`;
+  $('#dance-left').textContent = `🎵 ${round.prompts.length - round.cursor}`;
+}
+
+/** A move button was tapped: on the beat it scores, and the reviewer (and friends' view of them) does the move. */
+function danceTap(move) {
+  if (S.mode !== 'dance') return;
+  const result = S.dance.round.tap(move, danceTime());
+  if (!result) return; // too early: nothing to hit yet
+  if (result === 'miss') {
+    danceWord('Oops!');
+    sfx.danceMiss();
+  } else {
+    danceWord(result === 'perfect' ? 'PERFECT! ⭐' : 'Nice! 👍');
+    sfx.danceHit(result === 'perfect');
+    player.playEmote(move);
+    net.sendEmote(move); // at most one per prompt, which keeps inside the server's emote limit
+  }
+  refreshDance();
+}
+
+function updateDance(dt) {
+  controls.takeLook();
+  const d = S.dance;
+  const t = danceTime();
+  const beat = Math.floor(t / DANCE.beat);
+  if (beat !== d.beat) {
+    d.beat = beat;
+    sfx.beat(beat);
+  }
+  if (d.round.advance(t)) {
+    danceWord('Oops!');
+    sfx.danceMiss();
+    refreshDance();
+  }
+  // one big picture prompt at a time; its ring closes in on the beat
+  const p = d.round.current(t);
+  if (p !== d.shown) {
+    d.shown = p;
+    $('#dance-prompt').classList.toggle('off', !p);
+    if (p) $('#dance-move').textContent = EMOTE_INFO[p.move].emoji;
+    for (const b of $$('.dance-btn')) b.classList.toggle('want', !!p && b.dataset.move === p.move);
+  }
+  if (p) $('#dance-ring').style.transform = `scale(${(1 + (Math.max(0, p.at - t) / DANCE.show) * 0.9).toFixed(3)})`;
+  player.speed = 0;
+  followCamera(dt);
+  if (d.round.done(t)) finishDance();
+}
+
+function endDance() {
+  S.dance = null;
+  UI.show('#screen-dance', false);
+  S.mode = 'plaza';
+  showHud(true);
+}
+
+function finishDance() {
+  const { round } = S.dance;
+  syncQuests();
+  const best = S.quests.dance.best;
+  const record = round.hits > best;
+  if (record) {
+    S.quests.dance.best = round.hits;
+    saveQuests(S.quests);
+  }
+  S.lastDance = { hits: round.hits, total: round.prompts.length, stars: round.stars() };
+  endDance();
+  S.rewards.unshift({ type: 'dance', ...S.lastDance, record, best: Math.max(best, round.hits) });
+  showReward();
+}
+$('#dance-stop').addEventListener('click', () => {
+  if (S.mode !== 'dance') return;
+  sfx.tap();
+  endDance();
+});
+
 // ---------------------------------------------------------------- scrapbook & invite
-function openBook() {
+/** The scrapbook's missions and ingredient hunt pages, worked out from the saved quests. */
+function questPages() {
+  const h = S.quests.hunt;
+  return {
+    cards: missionCards(S.quests.missions),
+    rank: missionRank(S.quests.missions.done),
+    done: S.quests.missions.done,
+    hunt: {
+      items: S.huntItems.map((it) => ({ id: it.id, where: it.where, found: h.found.includes(it.id) })),
+      total: h.n,
+      recipes: Array.from({ length: Math.min(h.n, 24) }, (_, i) => recipeFor(h.n - 1 - i)), // newest first
+    },
+  };
+}
+
+function openBook(tab = 'passport') {
   if (S.mode !== 'plaza') return;
   sfx.whoosh();
   S.mode = 'book';
   player.speed = 0;
   S.vel.set(0, 0, 0);
   showHud(false);
-  UI.buildBook(reviewStats(S.reviews), S.progress);
+  UI.buildBook(reviewStats(S.reviews), S.progress, questPages(), tab);
   UI.show('#screen-book', true);
+}
+for (const tab of ['missions', 'hunt']) {
+  $(`#book-tab-${tab}`).addEventListener('click', () => {
+    sfx.tap();
+    UI.showBookTab(tab);
+  });
 }
 $('#book-tab-passport').addEventListener('click', () => {
   sfx.tap();
@@ -1192,6 +1642,7 @@ function frame(now) {
 
   if (S.mode === 'plaza') updatePlaza(dt);
   else if (S.mode === 'ride') updateRide(dt);
+  else if (S.mode === 'dance') updateDance(dt);
   else if (S.mode === 'studio') updateStudio(dt);
   else if (['order', 'belt', 'review', 'rate'].includes(S.mode)) updateInterior(dt, time);
   else {
@@ -1201,9 +1652,15 @@ function frame(now) {
   }
   // a menu opened in mid-bounce: float back down to the ground
   if (!S.restaurant && S.mode !== 'plaza' && S.mode !== 'ride') updateHeight(dt, false);
+  updateRace(now);
   player.update(dt);
   updateRemotes(dt, now);
-  world.update(time, S.mode !== 'plaza' ? null : S.near ? S.near.door : S.nearSlide ? world.slide.foot : null);
+  hunt.update(dt, time);
+  // the mat the reviewer is standing at glows: a door, the foot of the slide, or the dance floor
+  let spot = null;
+  if (S.mode === 'dance') spot = world.dance;
+  else if (S.mode === 'plaza') spot = S.near ? S.near.door : S.nearSlide ? world.slide.foot : S.nearDance ? world.dance : null;
+  world.update(time, spot);
 
   S.sendT += dt;
   if (S.sendT >= SEND_INTERVAL) {
@@ -1219,6 +1676,7 @@ function frame(now) {
 
 // ---------------------------------------------------------------- start
 S.mode = 'plaza';
+loadHunt();
 followCamera(0, true);
 showHud(true);
 updateNetChip();
@@ -1252,6 +1710,27 @@ window.__t42 = {
   remoteAnims: () => [...remotes.values()].map((e) => e.an),
   remoteHats: () => [...remotes.values()].map((e) => e.char.app.hat),
   hat: () => player.app.hat,
+  pet: () => player.app.pet,
+  petDistance: () => (player.pet ? player.pet.distanceTo(player) : -1),
+  remotePets: () => [...remotes.values()].map((e) => e.char.app.pet),
+  scooter: () => S.scooter,
+  speed: () => S.vel.length(),
+  emotesSeen: () => emotesSeen,
+  race: () => S.race && { rid: S.race.r.id, state: S.race.state, solo: S.race.solo },
+  lastRace: () => S.lastRace,
+  hunt: () => ({
+    n: S.quests.hunt.n, found: [...S.quests.hunt.found], showing: hunt.items.filter((it) => !it.gone).length,
+    items: S.huntItems.map((it) => ({ id: it.id, x: it.x, z: it.z, where: it.where })),
+  }),
+  missions: () => JSON.parse(JSON.stringify(S.quests.missions)),
+  danceFloor: () => ({ ...world.dance }),
+  dance: () => {
+    if (!S.dance) return null;
+    const t = danceTime();
+    const p = S.dance.round.current(t);
+    return { t, hits: S.dance.round.hits, total: S.dance.round.prompts.length, prompt: p && { i: p.i, move: p.move, at: p.at } };
+  },
+  lastDance: () => S.lastDance,
   passport: () => ({ stickers: [...S.progress.stickers], hats: [...S.progress.hats], badges: S.progress.badges.map((b) => ({ id: b.id, have: b.have, need: b.need, earned: b.earned })) }),
   /** The conveyor belt: speed, plus where each plate is on screen (CSS pixels) so a test can tap it. */
   belt: () => ({

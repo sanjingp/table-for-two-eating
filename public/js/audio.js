@@ -129,6 +129,29 @@ export const sfx = {
     tone(NOTES.G6, 0.25, { vol: 0.12, delay: 0.08 });
   },
   badge: () => [NOTES.C5, NOTES.E5, NOTES.G5, NOTES.C6, NOTES.E6].forEach((f, i) => tone(f, 0.24, { type: 'triangle', vol: 0.22, delay: i * 0.09 })),
+  // race: 3, 2, 1... GO!
+  count: () => tone(NOTES.C5, 0.16, { type: 'square', vol: 0.1 }),
+  go: () => {
+    tone(NOTES.C6, 0.55, { type: 'square', vol: 0.1 });
+    tone(NOTES.G5, 0.55, { type: 'triangle', vol: 0.2 });
+  },
+  scoot: () => {
+    noise(0.25, { vol: 0.18, freq: 1800, q: 0.7 });
+    tone(520, 0.16, { type: 'triangle', vol: 0.16, slide: 880 });
+  },
+  found: () => [NOTES.G5, NOTES.C6, NOTES.E6, NOTES.G6].forEach((f, i) => tone(f, 0.18, { type: 'triangle', vol: 0.2, delay: i * 0.07 })),
+  // dance party: beat number n of a four-beat bar (kick, off-beat hat and a bouncy bass line)
+  beat: (n) => {
+    tone(n % 4 === 0 ? 160 : 125, 0.17, { type: 'sine', vol: 0.5, slide: 45 });
+    noise(0.04, { vol: 0.1, freq: 6500, q: 1.2, delay: 0.3 });
+    tone([130.81, 130.81, 196, 174.61][n % 4], 0.26, { type: 'triangle', vol: 0.16 });
+    if (n % 8 === 7) tone(NOTES.G5, 0.12, { type: 'triangle', vol: 0.1, delay: 0.3 });
+  },
+  danceHit: (perfect) => {
+    tone(perfect ? NOTES.E6 : NOTES.C6, 0.16, { type: 'triangle', vol: 0.2 });
+    if (perfect) tone(NOTES.G6, 0.22, { vol: 0.12, delay: 0.07 });
+  },
+  danceMiss: () => tone(200, 0.16, { type: 'triangle', vol: 0.14, slide: 140 }),
   // food reactions (keyed by reaction name)
   spicy: () => {
     noise(0.6, { vol: 0.2, freq: 3400, q: 0.7 });

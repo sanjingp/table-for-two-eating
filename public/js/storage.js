@@ -1,8 +1,10 @@
 // localStorage helpers. Everything is wrapped so private-mode Safari can't crash the game.
 import { repairAppearance, RESTAURANT_IDS, DEFAULT_APPEARANCE } from './schema.js';
-import { RESTAURANT_BY_ID } from './data.js';
+import { RESTAURANT_BY_ID, VF_FRAMES, VF_TITLES } from './data.js';
+import { repairHunt } from './hunt.js';
+import { repairMissions } from './missions.js';
 
-const KEYS = { app: 't42.appearance', reviews: 't42.reviews', settings: 't42.settings' };
+const KEYS = { app: 't42.appearance', reviews: 't42.reviews', settings: 't42.settings', quests: 't42.quests' };
 const MAX_REVIEWS = 300;
 
 function read(key) {
@@ -54,6 +56,10 @@ function trimReviews(list) {
   return list.filter((r) => keep.has(r) || extra-- <= 0);
 }
 
+// Comic camera: the frame and show title a review was filmed with. Anything odd falls back to the classic look.
+const frameId = (v) => (VF_FRAMES.some((f) => f.id === v) ? v : VF_FRAMES[0].id);
+const titleIndex = (v) => (Number.isInteger(v) && v >= 0 && v < VF_TITLES.length ? v : 0);
+
 export function loadReviews() {
   const raw = read(KEYS.reviews);
   if (!Array.isArray(raw)) return [];
@@ -67,6 +73,8 @@ export function loadReviews() {
       mood: String(r.mood || '').slice(0, 8),
       stars: r.stars,
       ts: Number(r.ts) || Date.now(),
+      frame: frameId(r.frame),
+      title: titleIndex(r.title),
     })));
 }
 /** Add a review to this session's `list` and save it. Returns the new list even if saving fails. */
@@ -94,9 +102,38 @@ export function addReview(list, review) {
 
 export function loadSettings() {
   const s = read(KEYS.settings) || {};
-  return { muted: !!s.muted, speak: s.speak !== false, beltFast: !!s.beltFast };
+  return { muted: !!s.muted, speak: s.speak !== false, beltFast: !!s.beltFast, frame: frameId(s.frame), title: titleIndex(s.title) };
 }
-export const saveSettings = (s) => write(KEYS.settings, { muted: !!s.muted, speak: !!s.speak, beltFast: !!s.beltFast });
+export const saveSettings = (s) => write(KEYS.settings, {
+  muted: !!s.muted, speak: !!s.speak, beltFast: !!s.beltFast, frame: frameId(s.frame), title: titleIndex(s.title),
+});
+
+/**
+ * Personal quests, kept on this device only: the ingredient hunt, reviewer missions and the
+ * best dance score. Whatever was saved is checked and repaired, never trusted.
+ */
+export function loadQuests() {
+  const q = read(KEYS.quests) || {};
+  const best = q.dance && Number.isInteger(q.dance.best) ? Math.max(0, Math.min(999, q.dance.best)) : 0;
+  return { hunt: repairHunt(q.hunt), missions: repairMissions(q.missions), dance: { best } };
+}
+export const saveQuests = (q) => write(KEYS.quests, q);
+
+/**
+ * Another open tab may have saved quests since this one loaded. Returns this session's quests
+ * with that folded in, so a save never undoes it: the further-along hunt wins (the same hunt pools
+ * its finds), as do the missions with more finished and the better dance score.
+ */
+export function mergeQuests(session) {
+  const saved = loadQuests();
+  let hunt = saved.hunt.n > session.hunt.n ? saved.hunt : session.hunt;
+  if (saved.hunt.n === session.hunt.n) hunt = repairHunt({ n: hunt.n, found: [...saved.hunt.found, ...session.hunt.found] });
+  return {
+    hunt,
+    missions: saved.missions.done > session.missions.done ? saved.missions : session.missions,
+    dance: { best: Math.max(saved.dance.best, session.dance.best) },
+  };
+}
 
 export function reviewStats(reviews) {
   const stats = {};

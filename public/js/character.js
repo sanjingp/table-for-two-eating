@@ -3,7 +3,8 @@
 import * as THREE from '../vendor/three.module.js';
 import { skinColor } from './schema.js';
 import { EMOTE_INFO } from './data.js';
-import { blobShadowTexture, emojiTexture, labelTexture, makeSprite, speechTexture, smooth01, lerp, damp, mergeStatic } from './util.js';
+import { blobShadowTexture, emojiTexture, labelTexture, makeSprite, speechTexture, smooth01, lerp, damp, mergeStatic, bakeColored, bakedMaterial, mat } from './util.js';
+import { Pet } from './pet.js';
 
 const geoCache = new Map();
 const geo = (key, make) => {
@@ -50,6 +51,29 @@ const JEWEL_BLUE = new THREE.MeshLambertMaterial({ color: '#3a86ff', emissive: '
 const LENS = new THREE.MeshLambertMaterial({ color: '#1d1b2e' });
 const STEAM = new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#bbbbbb', transparent: true, opacity: 0.85, depthWrite: false });
 
+// The kick scooter: one baked mesh shared by every rider. Deck under the feet, handlebar in reach.
+let scooterGeo = null;
+function scooterGeometry() {
+  if (scooterGeo) return scooterGeo;
+  const g = new THREE.Group();
+  const piece = (geometry, color, x, y, z, rx = 0, rz = 0) => {
+    const m = add(g, geometry, mat(color), x, y, z);
+    m.rotation.set(rx, 0, rz);
+  };
+  piece(new THREE.BoxGeometry(0.22, 0.05, 0.62), '#ff5fa2', 0, 0.115, 0.02);
+  piece(new THREE.BoxGeometry(0.16, 0.012, 0.4), '#3a3150', 0, 0.146, 0); // grip tape
+  for (const z of [0.43, -0.34]) {
+    piece(new THREE.CylinderGeometry(0.09, 0.09, 0.06, 12), '#ffd23f', 0, 0.09, z, 0, Math.PI / 2);
+    piece(new THREE.CylinderGeometry(0.035, 0.035, 0.07, 8), '#ffffff', 0, 0.09, z, 0, Math.PI / 2);
+  }
+  piece(new THREE.BoxGeometry(0.06, 0.05, 0.14), '#9b5de5', 0, 0.15, 0.37, -0.5);
+  piece(new THREE.CylinderGeometry(0.024, 0.024, 0.84, 8), '#c9cfd6', 0, 0.55, 0.415, -0.06);
+  piece(new THREE.CylinderGeometry(0.024, 0.024, 0.46, 8), '#9b5de5', 0, 0.96, 0.39, 0, Math.PI / 2);
+  for (const x of [-0.2, 0.2]) piece(new THREE.CylinderGeometry(0.034, 0.034, 0.1, 8), '#2a1a2e', x, 0.96, 0.39, 0, Math.PI / 2);
+  scooterGeo = bakeColored(g);
+  return scooterGeo;
+}
+
 // Hats sit higher (and further back) on big hair: [up, back].
 const HAT_SEAT = { afropuff: [0.4, 0.18], curly: [0.08, 0.03] };
 
@@ -90,7 +114,10 @@ export class Character {
     this.walkAmt = 0;
     this.speed = 0; // 0..1 set by owner each frame
     this.pose = 'stand'; // 'stand' | 'sit'
-    this.action = null; // null | 'air' (bounce pad) | 'slide' — set by the owner each frame
+    this.action = null; // null | 'air' (bounce pad) | 'slide' | 'scoot' (on the scooter) — set by the owner each frame
+    this.scooter = null; // built the first time this character rides
+    this.pet = null; // sidekick (app.pet), see pet.js
+    this.petSpot = null; // { x, z, yaw } makes the pet sit there instead of following
     this.holdingCamera = false;
     this.emote = null;
     this.emoteT = 0;
@@ -126,6 +153,13 @@ export class Character {
     m.sole.color.set(app.shoes === 'lightup' ? '#ffffff' : app.shoes === 'sandals' ? app.shoesColor : '#ffffff');
     const styleKeys = ['hairStyle', 'top', 'jacket', 'bottom', 'shoes', 'hat'];
     if (!prev || styleKeys.some((k) => prev[k] !== app[k])) this.rebuild();
+    if ((this.pet ? this.pet.kind : 'none') !== (app.pet || 'none')) this.setPet(app.pet);
+  }
+
+  setPet(kind) {
+    this.pet?.dispose();
+    this.pet = kind && kind !== 'none' ? new Pet(kind) : null;
+    if (this.pet) this.root.add(this.pet.group);
   }
 
   rebuild() {
@@ -261,6 +295,7 @@ export class Character {
     this.shadow.material.dispose();
     this.labelSprite?.material.dispose();
     this.clearBubble();
+    this.pet?.dispose();
     this.root.removeFromParent();
   }
 
@@ -465,6 +500,7 @@ export class Character {
     this.emoteT = 0;
     const info = EMOTE_INFO[name];
     if (info && name !== 'jump') this.showBubble(emojiTexture(info.emoji), 0.7, 2.0);
+    if (name === 'dance' || name === 'jump' || name === 'wow' || name === 'heart') this.pet?.cheer();
   }
 
   holdCamera(on) {
@@ -503,7 +539,7 @@ export class Character {
       armLx: -s * 0.65 * w, armRx: s * 0.65 * w, armLz: -0.12, armRz: 0.12,
       legLx: s * 0.75 * w, legRx: -s * 0.75 * w,
       bodyY: Math.abs(Math.cos(this.phase)) * 0.07 * w + breath,
-      headX: 0, headZ: Math.sin(this.time * 1.3) * 0.03, headY: 0, bodyRy: 0, bodyX: 0, mouth: 'smile', squint: false, thumb: false,
+      headX: 0, headZ: Math.sin(this.time * 1.3) * 0.03, headY: 0, bodyRy: 0, bodyRx: 0, bodyX: 0, mouth: 'smile', squint: false, thumb: false,
     };
     if (this.pose === 'sit') {
       P.legLx = P.legRx = -1.45;
@@ -520,6 +556,10 @@ export class Character {
     } else if (this.action === 'slide') {
       // sitting on the chute, hands in the air
       Object.assign(P, { armLx: -0.2, armRx: -0.2, armLz: -2.7, armRz: 2.7, legLx: -0.95, legRx: -0.95, bodyY: -0.34, mouth: 'o' });
+    } else if (this.action === 'scoot') {
+      // both hands on the handlebar, one foot on the deck, the other kicking along
+      const kick = Math.max(0, Math.sin(this.phase * 0.55)) * w;
+      Object.assign(P, { armLx: -1.15, armRx: -1.15, armLz: 0.14, armRz: -0.14, legLx: -0.1 * w, legRx: kick * 0.95, bodyY: 0.14 + breath, bodyRx: 0.07 * w });
     }
 
     // Emote overlay
@@ -551,7 +591,9 @@ export class Character {
     this.legL.rotation.x = P.legLx;
     this.legR.rotation.x = P.legRx;
     this.body.position.set(P.bodyX, P.bodyY + this.jumpY, 0);
-    this.body.rotation.y = P.bodyRy;
+    this.body.rotation.set(P.bodyRx, P.bodyRy, 0);
+    this.updateScooter(this.action === 'scoot');
+    this.pet?.update(dt, this);
     this.head.rotation.set(P.headX, P.headY, P.headZ);
     this.mouthSmile.visible = P.mouth === 'smile' || P.mouth === 'tongue';
     this.mouthO.visible = P.mouth === 'o' || P.mouth === 'chomp' || P.mouth === 'pucker';
@@ -600,6 +642,21 @@ export class Character {
         this.bubble = null;
       }
     }
+  }
+
+  /** The scooter under the feet while `action` is 'scoot'. Built on first use; it hops with a jump. */
+  updateScooter(on) {
+    if (!on) {
+      if (this.scooter) this.scooter.visible = false;
+      return;
+    }
+    if (!this.scooter) {
+      this.scooter = new THREE.Mesh(scooterGeometry(), bakedMaterial());
+      this.scooter.scale.setScalar(this.scaleFactor);
+      this.root.add(this.scooter);
+    }
+    this.scooter.visible = true;
+    this.scooter.position.y = this.jumpY;
   }
 
   /** Little puffs of steam out of both ears (spicy food!). Built on first use. */

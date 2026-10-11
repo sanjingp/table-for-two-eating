@@ -1,8 +1,9 @@
 // DOM builders for the menu screens. All text shown comes from preset lists — never from other players.
 import { h, $, pick } from './util.js';
-import { HAIR_STYLES, HATS, NAME_ADJ, NAME_NOUN, SKIN_STOPS, LINES, RESTAURANT_IDS } from './schema.js';
+import { HAIR_STYLES, HATS, PETS, NAME_ADJ, NAME_NOUN, SKIN_STOPS, LINES, RACE_LINE, RESTAURANT_IDS } from './schema.js';
 import {
   HAIR_STYLE_INFO, HAIR_COLORS, EYE_COLORS, CLOTH_COLORS, CLOTHES, EMOTE_INFO, MOODS, RESTAURANT_BY_ID, FOOD_REACTIONS, HAT_INFO, BADGES,
+  PET_INFO, INGREDIENTS, HUNT_PLACES, VF_FRAMES, VF_TITLES,
 } from './data.js';
 import { sfx } from './audio.js';
 
@@ -96,6 +97,7 @@ export function studioTabs(kind, ctx) {
       id: slot, icon: def.icon, label: def.title, build: () => buildClothes(slot, def, ctx),
     })),
     { id: 'hat', icon: '👑', label: 'Hats', build: () => buildHats(ctx) },
+    { id: 'pet', icon: '🐶', label: 'Pets', build: () => buildPets(ctx) },
   ];
 }
 
@@ -205,19 +207,31 @@ function buildHats(ctx) {
     h('p.hint', {}, 'Win badges in your Sticker Passport (📖 My Reviews) to unlock more hats!'));
 }
 
+/** A sidekick that follows you around town. Friends see it too (it is part of the appearance). */
+function buildPets(ctx) {
+  return h('div', {},
+    h('div.section-title', {}, '🐾 Pet sidekick'),
+    optionGrid(PETS.map((p) => [p, PET_INFO[p].label, PET_INFO[p].icon]), ctx.getApp().pet, (pet) => ctx.update({ pet })),
+    h('p.hint', {}, 'Your pet follows you around town and sits with you while you film!'));
+}
+
 // ------------------------------------------------------------------ plaza emote panel
 export function buildEmotePanel(emotes, lines, onEmote, onSay) {
   const grid = $('#emote-grid');
   const list = $('#say-list');
   grid.replaceChildren(...emotes.map((e) => h('button.emote-btn', { onclick: () => onEmote(e), 'aria-label': EMOTE_INFO[e].label },
     EMOTE_INFO[e].emoji, h('small', {}, EMOTE_INFO[e].label))));
-  list.replaceChildren(...lines.map((i) => h('button.say-btn', { onclick: () => onSay(i) }, `💬 ${LINES[i]}`)));
+  // "Wanna race?" is more than a line: it starts a race to a restaurant
+  list.replaceChildren(...lines.map((i) => h('button.say-btn', { dataset: { line: String(i) }, onclick: () => onSay(i) },
+    `${i === RACE_LINE ? '🏁' : '💬'} ${LINES[i]}`)));
 }
 
 // ------------------------------------------------------------------ order
-export function buildOrder(r, onPick) {
+/** isGoal(item) marks the foods that would move one of the reviewer's missions along. */
+export function buildOrder(r, onPick, isGoal = () => false) {
   $('#order-rest').textContent = r.name;
-  $('#order-menu').replaceChildren(...r.menu.map((item) => h('button.menu-item', { onclick: () => onPick(item) },
+  $('#order-menu').replaceChildren(...r.menu.map((item) => h('button.menu-item', { dataset: { id: item.id }, onclick: () => onPick(item) },
+    isGoal(item) && h('span.mi-goal', { 'aria-label': 'Counts for a mission' }, '🎯'),
     item.react && h('span.mi-tag', { 'aria-label': FOOD_REACTIONS[item.react].label }, FOOD_REACTIONS[item.react].tag),
     h('span.mi-emoji', {}, item.emoji),
     h('span.mi-name', {}, item.name),
@@ -267,20 +281,115 @@ export function buildRate(item, onDone) {
   };
 }
 
-// ------------------------------------------------------------------ new badge
-export function buildReward(badge) {
-  const hat = HAT_INFO[badge.hat];
-  $('#reward-emoji').textContent = badge.emoji;
-  $('#reward-name').textContent = badge.name;
-  $('#reward-prize').textContent = `You unlocked the ${hat.label}! ${hat.icon}`;
+// ------------------------------------------------------------------ comic camera
+/** Put the reviewer's chosen frame and show title on the viewfinder. */
+export function setViewfinder(frameId, title) {
+  const frame = VF_FRAMES.find((f) => f.id === frameId) || VF_FRAMES[0];
+  $('#viewfinder').dataset.frame = frame.id;
+  $('#frame-name').textContent = `${frame.label} ${frame.icon}`;
+  $('#vf-show').textContent = VF_TITLES[title] || VF_TITLES[0];
 }
 
+let comicTimer = 0;
+let comicN = 0;
+const COMIC_SPOTS = [['64%', '15%', '-8deg'], ['8%', '20%', '7deg'], ['58%', '30%', '5deg'], ['14%', '12%', '-6deg']];
+/** Burst a comic word onto the viewfinder: CRUNCH! */
+export function comicPop(word) {
+  const el = $('#comic-pop');
+  const [x, y, tilt] = COMIC_SPOTS[comicN++ % COMIC_SPOTS.length];
+  el.textContent = word;
+  el.style.setProperty('--x', x);
+  el.style.setProperty('--y', y);
+  el.style.setProperty('--tilt', tilt);
+  el.classList.remove('hidden');
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = '';
+  clearTimeout(comicTimer);
+  comicTimer = setTimeout(() => el.classList.add('hidden'), 950);
+}
+
+// ------------------------------------------------------------------ dance party
+export function buildDanceButtons(moves, onTap) {
+  $('#dance-buttons').replaceChildren(...moves.map((m) => {
+    const b = h('button.btn.dance-btn', { dataset: { move: m }, 'aria-label': EMOTE_INFO[m].label }, EMOTE_INFO[m].emoji, h('small', {}, EMOTE_INFO[m].label));
+    // pointerdown, not click: the tap has to land on the beat
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      onTap(m);
+    });
+    return b;
+  }));
+}
+
+// ------------------------------------------------------------------ prize card
+/** card = { sub, emoji, name, prize, primary, secondary }: secondary is optional (a second, quieter button). */
+export function buildReward(card) {
+  $('#reward-sub').textContent = card.sub;
+  $('#reward-emoji').textContent = card.emoji;
+  $('#reward-name').textContent = card.name;
+  $('#reward-prize').textContent = card.prize;
+  $('#reward-wear').textContent = card.primary;
+  $('#reward-later').textContent = card.secondary || '';
+  show('#reward-later', !!card.secondary);
+}
+export const badgeCard = (badge) => ({
+  sub: '🎉 You earned a badge!', emoji: badge.emoji, name: badge.name,
+  prize: `You unlocked the ${HAT_INFO[badge.hat].label}! ${HAT_INFO[badge.hat].icon}`, primary: 'Wear it!', secondary: 'Keep playing',
+});
+
 // ------------------------------------------------------------------ scrapbook + sticker passport
+const BOOK_TABS = { passport: '#book-passport', reviews: '#book-grid', missions: '#book-missions', hunt: '#book-hunt' };
 export function showBookTab(which) {
-  show('#book-passport', which === 'passport');
-  show('#book-grid', which === 'reviews');
-  $('#book-tab-passport').classList.toggle('on', which === 'passport');
-  $('#book-tab-reviews').classList.toggle('on', which === 'reviews');
+  for (const [id, sel] of Object.entries(BOOK_TABS)) {
+    show(sel, id === which);
+    $(`#book-tab-${id}`).classList.toggle('on', id === which);
+  }
+}
+
+/** cards = missionCards(state), rank = missionRank(done): three picture challenges and the reviewer's rank. */
+function buildMissions(cards, rank, done) {
+  $('#book-missions').replaceChildren(
+    h('div.rank-card', {},
+      h('div.rk-emoji', {}, rank.emoji),
+      h('div', {},
+        h('div.rk-name', {}, rank.name),
+        h('div.rk-next', {}, rank.next
+          ? `${done} mission${done === 1 ? '' : 's'} done. ${rank.toGo} more to become a ${rank.next.name} ${rank.next.emoji}`
+          : `${done} missions done. You are a legend! 🎉`))),
+    h('div.section-title', {}, '🎯 My missions: film a review that fits!'),
+    h('div.mission-grid', {}, cards.map((c) => h('div.mission-card', { dataset: { id: c.id } },
+      h('div.ms-pics', {}, c.pics),
+      h('div.ms-title', {}, c.title),
+      h('div.ms-pips', { 'aria-label': `${c.have} of ${c.need}` }, Array.from({ length: c.need }, (_, i) => h(i < c.have ? 'i.on' : 'i'))),
+      c.hints.length > 0 && h('div.ms-hints', {}, c.hints.join(' '), h('small', {}, 'Look for these on the menus'))))),
+    h('p.hint', {}, 'Foods with a 🎯 on the menu count for a mission.'));
+}
+
+/** hunt = { items: [{ id, where, found }], recipes: [{ name, emoji, made }] } */
+function buildHunt(hunt) {
+  const found = hunt.items.filter((it) => it.found).length;
+  const tilts = ['-2deg', '1.5deg', '-1deg', '2deg'];
+  $('#book-hunt').replaceChildren(
+    h('div.section-title', {}, `🔍 Giant ingredients: ${found} of ${hunt.items.length} found`),
+    h('div.hunt-grid', {}, hunt.items.map((it) => {
+      const info = INGREDIENTS.find((i) => i.id === it.id);
+      const place = HUNT_PLACES[it.where];
+      return h(`div.hunt-item${it.found ? '.got' : ''}`, { dataset: { id: it.id } },
+        h('div.hi-emoji', {}, info.emoji),
+        it.found ? `${info.name} ✅` : info.name,
+        !it.found && h('div.hi-where', {}, place.icon),
+        !it.found && h('small', {}, place.label));
+    })),
+    h('p.hint', {}, 'Walk into a giant ingredient to pick it up. Find all 6 to cook a silly recipe!'),
+    h('div.section-title', {}, `🍳 My silly recipes: ${hunt.total}`),
+    hunt.recipes.length
+      ? h('div.recipe-grid', {}, hunt.recipes.map((r, i) => {
+        const card = h('div.recipe', {}, h('div.rc-emoji', {}, r.emoji), r.name, h('small', {}, r.made));
+        card.style.setProperty('--tilt', tilts[i % tilts.length]);
+        return card;
+      }))
+      : h('p.hint', {}, 'No recipes yet. The first ingredient is waiting by the path to Sakura Sushi!'));
 }
 
 /** progress = passportProgress(reviews): the stickers and badges earned so far. */
@@ -319,9 +428,20 @@ function buildPassport(progress) {
   );
 }
 
-export function buildBook(stats, progress) {
+/** quests = { cards, rank, done, hunt }: the missions and ingredient hunt pages. */
+/** The comic-camera frame and show title a review was filmed with (nothing for the plain classic look). */
+function decoChip(rv) {
+  const frame = VF_FRAMES.find((f) => f.id === rv.frame);
+  const fancy = frame && frame.id !== VF_FRAMES[0].id;
+  if (!fancy && !rv.title) return null;
+  return h('span.deco', {}, `${fancy ? frame.icon : '🎬'}${rv.title ? ` ${VF_TITLES[rv.title]}` : ''}`);
+}
+
+export function buildBook(stats, progress, quests, tab = 'passport') {
   buildPassport(progress);
-  showBookTab('passport');
+  buildMissions(quests.cards, quests.rank, quests.done);
+  buildHunt(quests.hunt);
+  showBookTab(tab);
   const total = Object.values(stats).reduce((a, s) => a + s.count, 0);
   const visited = Object.values(stats).filter((s) => s.count).length;
   $('#book-summary').textContent = total
@@ -336,7 +456,7 @@ export function buildBook(stats, progress) {
       h('span', {}, r.name), h('span.avg', {}, s.count ? starStr(Math.round(s.avg)) : ''));
     const body = s.count
       ? h('ul', {}, s.list.slice(-6).reverse().map((rv) => h('li', {},
-        h('span.fe', {}, rv.emoji), h('span.fn', {}, rv.food), h('span.st', {}, starStr(rv.stars)), h('span', {}, rv.mood))))
+        h('span.fe', {}, rv.emoji), h('span.fn', {}, rv.food), decoChip(rv), h('span.st', {}, starStr(rv.stars)), h('span', {}, rv.mood))))
       : h('div.empty', {}, 'Not visited yet! 🚪');
     const page = h('div.book-page', {}, header, body);
     page.style.setProperty('--tilt', tilts[i % tilts.length]); // custom properties need setProperty

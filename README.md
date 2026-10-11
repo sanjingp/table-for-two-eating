@@ -9,6 +9,13 @@ Walk around **Yummy Town** and visit 20 restaurants. Thirteen are made-up places
 - 🍣 **Sushi conveyor belt.** At Sakura Sushi the plates glide past: tap one to grab it. Pick 🐢 Relaxed or 🐇 Fast, or skip to the menu.
 - 🎫 **Sticker passport.** Every restaurant you review gives you a sticker. Badges unlock hats for your closet: a chef hat, sunglasses and a crown.
 - 🎢 **Playground.** Bounce pads send you flying, and there is a slide to climb and ride. Friends see you do both.
+- 🏁 **Race to a restaurant.** Say "Wanna race?" and everyone in town gets a 3-2-1 countdown, a flag over one door and an arrow pointing the way. First one there wins, with confetti.
+- 🐶 **Pet sidekick.** Pick a puppy, kitten, dino or dragon in the closet. It follows you around town, sits by the table while you film, and friends see it too.
+- 🛴 **Scooter.** Tap the scooter button to zoom around the bigger town.
+- 🔍 **Hidden ingredient hunt.** Six giant ingredients hide around town (in the grass, between buildings, behind them). Find all six to cook a silly recipe sticker such as "Upside-Down Banana & Strawberry Sundae", then a new hunt starts.
+- 🎯 **Reviewer missions.** Three picture challenges at a time ("Find something crunchy", "Get a brain freeze"). Foods that count get a 🎯 on the menu, and finished missions add up to a reviewer rank.
+- 💥 **Comic camera.** Comic words burst onto the viewfinder as you film (CRUNCH! SLURP! BRRR!). Pick a preset frame and show title; they are saved with the review.
+- 💃 **Dance party.** Step onto the dance floor by the fountain and tap the pictured move on the beat. Friends see you dance; your score is your own.
 
 - 🎨 **Character creator.** Pick a fun preset name, 7 hair styles, any hair or eye color, and a realistic skin-tone slider.
 - 👗 **Closet.** Tops, jackets, bottoms and shoes (yes, light-up ones ✨), each in many colors or any color you like.
@@ -47,9 +54,11 @@ Tips:
 |---|---|---|
 | Walk | Drag the joystick (bottom-left) | WASD / arrow keys |
 | Look around | Drag anywhere on the 3D world | Drag with the mouse |
-| Jump / Go in / Slide | Big yellow button | Space (E / Enter at a door or the slide) |
+| Jump / Go in / Slide / Dance | Big yellow button | Space (E / Enter at a door, the slide or the dance floor) |
 | Grab a sushi plate | Tap the plate | Click the plate |
-| Emotes & sayings | 😊 Emote button | — |
+| Emotes & sayings, start a race | 😊 Emote button | — |
+| Scooter on / off | 🛴 Scooter button | — |
+| Hunt and missions pages | 🔍 and 🎯 buttons | — |
 
 ## Rooms & inviting friends
 
@@ -77,7 +86,12 @@ This runs `tests/e2e.mjs` with Playwright and headless Chromium (it installs Chr
 9. goes back and taps a plate (and then the Mystery Plate dome) on the 3D belt, and checks that plate is the one served;
 10. orders a Mystery Plate at a second restaurant and checks the silly combo and its reaction;
 11. reviews a third restaurant, and checks the sticker passport, the badge it earns, the chef hat it unlocks, and that the other page sees the hat;
-12. sends bad messages straight to the server (chat, unknown fields, bad names, unknown hats, sky-high heights, >4 KB, 9 players) and checks they're rejected.
+12. rides the scooter, picks a pet, and checks the other page sees both;
+13. starts a race with "Wanna race?", checks both pages get the same door and countdown, that nobody can move before GO, and that the first to the door wins on both pages;
+14. collects all six hidden ingredients (checking the other page's hunt is untouched) and checks the silly recipe sticker;
+15. checks the mission rules and pages, the 🎯 menu tags, the comic words, frames and titles (saved with the review), and that odd saved data falls back to defaults;
+16. plays a whole dance party round and checks every move reached the other page without tripping the emote rate limit;
+17. sends bad messages straight to the server (chat, unknown fields, bad names, unknown hats and pets, sky-high heights, >4 KB, 9 players) and checks they're rejected, and checks the race rules there too: the server picks the door, there are no false starts, one race at a time, and a rate limit on starting them.
 
 ## Updating
 
@@ -129,6 +143,8 @@ On the server you can restrict which sites may connect with `ALLOWED_ORIGINS=htt
 
 - **No text chat and no typing** of any kind. Names are built from two preset word lists, and "speech" is a preset line sent as a number.
 - The server **validates every message**: 4 KB size cap, per-connection rate limits, strict schema (hex colors, enums, clamped numbers). Unknown fields are dropped and messages are rebuilt before relaying. It also limits rooms to 8 players, caps connections per IP, and times out idle sockets. The client validates incoming data too.
+- **Races** send nothing a player typed or chose: the message is just "start a race". The server picks the door, runs the countdown and names the winner from the positions it already relays. Nobody can pick the target, start early, or win sooner than the run could take. Starting races is rate limited per player and per town.
+- The ingredient hunt, missions, dance scores and camera decorations are **personal**: they stay in the browser and are never sent to anyone. Pets are a preset choice (no pet names).
 - Rooms are only reachable by link. No accounts and no analytics. Reviews and outfits are stored only in the browser (`localStorage`). `Referrer-Policy: no-referrer` and a strict Content-Security-Policy are set, and nothing is loaded from third-party sites (three.js is vendored).
 
 ## Project layout
@@ -138,11 +154,18 @@ server/server.js      static files + WebSocket relay (validation, rate limits)
 public/index.html     UI markup
 public/style.css      big, friendly, touch-first styles
 public/config.js      optional WebSocket URL override
-public/js/schema.js   shared enums + validation (used by client AND server)
-public/js/data.js     restaurants, menus, food reactions, Mystery Plate twists (add a restaurant here)
+public/js/schema.js   shared enums + validation, race rules (used by client AND server)
+public/js/data.js     restaurants, menus, food reactions, Mystery Plate twists, missions, hunt and camera presets (add a restaurant here)
 public/js/main.js     game loop, modes, multiplayer glue
-public/js/world.js    town, restaurants, interior set, collisions
-public/js/character.js  low-poly character, outfits, emotes
+public/js/world.js    town, restaurants, dance floor, interior set, collisions
+public/js/character.js  low-poly character, outfits, emotes, scooter
+public/js/pet.js      pet sidekicks
+public/js/hunt.js     ingredient hunt: hiding places and silly recipes (no 3D)
+public/js/ingredients.js  the giant ingredients' 3D models
+public/js/missions.js reviewer mission rules (no 3D)
+public/js/dance.js    dance party round: prompts and scoring (no 3D)
+public/js/belt.js     sushi conveyor belt
+public/js/passport.js sticker passport and badges
 public/js/food.js     3D food models
 public/js/ui.js       creator / closet / order / rate / scrapbook screens
 public/vendor/        three.js (copied from node_modules)

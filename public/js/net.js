@@ -1,5 +1,5 @@
 // WebSocket client. Optional: if the server can't be reached the game keeps working solo.
-import { sanitizeAppearance, ANIMS, EMOTES, LINES, isValidRoom, WORLD_LIMIT, HEIGHT_LIMIT } from './schema.js';
+import { sanitizeAppearance, ANIMS, EMOTES, LINES, RACE, RESTAURANT_IDS, isValidRoom, WORLD_LIMIT, HEIGHT_LIMIT } from './schema.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,16}$/.test(v);
@@ -19,7 +19,7 @@ function wsUrl(room) {
 export class Net {
   constructor(room, handlers) {
     this.room = isValidRoom(room) ? room : null;
-    this.h = handlers; // { onStatus, onWelcome, onJoin, onLeave, onState, onEmote, onSay, onAppearance }
+    this.h = handlers; // { onStatus, onWelcome, onJoin, onLeave, onState, onEmote, onSay, onAppearance, onRace, onWin }
     this.ws = null;
     this.status = 'offline';
     this.id = null;
@@ -87,7 +87,7 @@ export class Net {
         if (!isId(m.id) || !Array.isArray(m.peers)) return;
         this.id = m.id;
         this.setStatus('online');
-        this.h.onWelcome?.(m.peers.slice(0, 16).map((p) => this.cleanPeer(p)).filter(Boolean));
+        this.h.onWelcome?.(m.peers.slice(0, 16).map((p) => this.cleanPeer(p)).filter(Boolean), this.cleanRace(m.race));
         break;
       case 'join': {
         const p = this.cleanPeer(m);
@@ -113,6 +113,12 @@ export class Net {
         if (isId(m.id) && app) this.h.onAppearance?.(m.id, app);
         break;
       }
+      case 'race': // someone started a race to restaurant m.r
+        if (isId(m.id) && RESTAURANT_IDS.includes(m.r)) this.h.onRace?.(m.id, m.r);
+        break;
+      case 'win': // the race is over; no id means time ran out
+        if (m.id === undefined || isId(m.id)) this.h.onWin?.(m.id ?? null);
+        break;
       case 'full':
         this.setStatus('full');
         break;
@@ -127,10 +133,17 @@ export class Net {
   }
 
   cleanState(s) {
-    if (!s || !isNum(s.x) || !isNum(s.z) || !isNum(s.ry) || !ANIMS.includes(s.an)) return null;
+    if (!s || !isNum(s.x) || !isNum(s.z) || !isNum(s.ry) || typeof s.an !== 'string') return null;
     const lim = (v) => Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, v));
     const y = isNum(s.y) ? Math.max(0, Math.min(HEIGHT_LIMIT, s.y)) : 0; // height off the ground (bounce pads, slide)
-    return { x: lim(s.x), z: lim(s.z), ry: lim(s.ry), an: s.an, y };
+    // a move this page does not know (a friend on a newer version of the game) is shown as walking
+    return { x: lim(s.x), z: lim(s.z), ry: lim(s.ry), an: ANIMS.includes(s.an) ? s.an : 'walk', y };
+  }
+
+  /** A race that was already on when we joined: { r: restaurant id, ms: milliseconds until GO (negative once it has started) }. */
+  cleanRace(race) {
+    if (!race || !RESTAURANT_IDS.includes(race.r) || !isNum(race.ms)) return null;
+    return { r: race.r, ms: Math.max(-RACE.timeout * 1000, Math.min(RACE.countdown * 1000, race.ms)) };
   }
 
   send(obj) {
@@ -145,6 +158,12 @@ export class Net {
   }
   sendSay(l) {
     if (this.status === 'online') this.send({ t: 'say', l });
+  }
+  /** Ask the server to start a race. Returns false when playing solo (the game then races the clock). */
+  sendRace() {
+    if (this.status !== 'online') return false;
+    this.send({ t: 'race' });
+    return true;
   }
   sendAppearance(app) {
     this.app = app;

@@ -812,7 +812,7 @@ export const hasFoodModel = (id) => Object.prototype.hasOwnProperty.call(BUILDER
 
 /**
  * Build a food model by menu item id. `twistTint` (a hex color or 'rainbow') re-tints it
- * for a Mystery Plate. Meshes are merged per material to keep draw calls low on iPad.
+ * for a Mystery Plate. Meshes are merged (colors baked into the vertices) to keep draw calls low on iPad.
  */
 export function createFood(id, accent, twistTint = null) {
   const g = new THREE.Group();
@@ -824,6 +824,6 @@ export function createFood(id, accent, twistTint = null) {
   } finally {
     tint = null;
   }
-  mergeStatic(g);
+  mergeStatic(g, { bake: true }); // plain colors become one mesh: a draw call or two per food
   return g;
 }

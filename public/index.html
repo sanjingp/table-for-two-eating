@@ -40,13 +40,28 @@
       <button id="btn-sound" class="btn hud-btn white icon-only" aria-label="Sound on or off">🔊</button>
     </div>
 
+    <!-- personal quests: both open the scrapbook on their page -->
+    <div class="hud-quests">
+      <button id="btn-hunt" class="btn hud-btn white" aria-label="Ingredient hunt">🔍<span id="hunt-count">0/6</span></button>
+      <button id="btn-missions" class="btn hud-btn white" aria-label="Missions">🎯<span id="missions-count">Missions</span></button>
+    </div>
+
+    <div id="race-banner" class="race-banner hidden" role="status">
+      <span id="race-arrow" class="race-arrow"><i></i></span>
+      <span id="race-text"></span>
+      <span id="race-dist" class="race-dist"></span>
+    </div>
+
     <div id="joystick-zone">
       <div id="joystick-base"><div id="joystick-knob"></div></div>
       <div class="joystick-hint">Drag to walk!</div>
     </div>
 
     <div class="hud-bottom-right">
-      <button id="btn-emote" class="btn round-btn purple" aria-label="Emote">😊<small>Emote</small></button>
+      <div class="hud-stack">
+        <button id="btn-scooter" class="btn round-btn teal" aria-label="Scooter" aria-pressed="false">🛴<small>Scooter</small></button>
+        <button id="btn-emote" class="btn round-btn purple" aria-label="Emote">😊<small>Emote</small></button>
+      </div>
       <button id="btn-action" class="btn round-btn big" aria-label="Action">⭐<small id="action-label">Jump</small></button>
     </div>
 
@@ -102,18 +117,22 @@
 
   <!-- ===================== Review (camera viewfinder) ===================== -->
   <section id="screen-review" class="screen hidden" aria-label="Film your review">
-    <div class="viewfinder">
+    <div id="viewfinder" class="viewfinder" data-frame="classic">
+      <i class="vf-frame"></i>
       <i class="vf-corner tl"></i><i class="vf-corner tr"></i><i class="vf-corner bl"></i><i class="vf-corner br"></i>
       <div class="vf-rec"><span class="rec-dot"></span>REC <span id="rec-time">00:00</span></div>
-      <div class="vf-title">🎬 Table for Two · <span id="vf-rest"></span></div>
+      <div class="vf-title">🎬 <span id="vf-show">Table for Two</span> · <span id="vf-rest"></span></div>
       <div class="vf-battery">🔋 <span>HD</span></div>
       <div class="vf-focus"></div>
+      <div id="comic-pop" class="comic-pop hidden" aria-hidden="true"></div>
     </div>
     <div class="review-controls">
       <div class="review-row" id="review-emotes"></div>
       <div class="review-row lines" id="review-lines"></div>
       <div class="review-row actions">
         <button id="btn-talk" class="btn white small">🗣️ Talk out loud: ON</button>
+        <button id="btn-frame" class="btn white small" aria-label="Change the camera frame">🖼️ <span id="frame-name">Classic</span></button>
+        <button id="btn-title" class="btn white small" aria-label="Change the show title">🎬 Title</button>
         <button id="btn-review-done" class="btn green">⭐ Rate it!</button>
       </div>
     </div>
@@ -142,16 +161,34 @@
       <div class="tabs book-tabs">
         <button id="book-tab-passport" class="tab on"><span class="ti">🎫</span><span>Sticker Passport</span></button>
         <button id="book-tab-reviews" class="tab"><span class="ti">📖</span><span>Reviews</span></button>
+        <button id="book-tab-missions" class="tab"><span class="ti">🎯</span><span>Missions</span></button>
+        <button id="book-tab-hunt" class="tab"><span class="ti">🔍</span><span>Hunt</span></button>
       </div>
       <div id="book-passport" class="book-passport"></div>
       <div id="book-grid" class="book-grid hidden"></div>
+      <div id="book-missions" class="book-passport hidden"></div>
+      <div id="book-hunt" class="book-passport hidden"></div>
     </div>
   </section>
 
-  <!-- ===================== New badge ===================== -->
-  <section id="screen-reward" class="screen dim hidden" aria-label="New badge">
+  <!-- ===================== Plaza dance party (the 3D town stays in view) ===================== -->
+  <section id="screen-dance" class="screen dance hidden" aria-label="Dance party">
+    <div class="dance-top">
+      <div id="dance-score" class="chip">⭐ 0</div>
+      <div id="dance-left" class="chip">🎵 12</div>
+      <button id="dance-stop" class="btn white small">✖ Stop</button>
+    </div>
+    <div class="dance-stage">
+      <div id="dance-prompt" class="dance-prompt"><i id="dance-ring" class="dance-ring"></i><span id="dance-move"></span></div>
+      <div id="dance-word" class="dance-word"></div>
+    </div>
+    <div id="dance-buttons" class="dance-buttons"></div>
+  </section>
+
+  <!-- ===================== Prize card: new badge, silly recipe, dance score ===================== -->
+  <section id="screen-reward" class="screen dim hidden" aria-label="Prize">
     <div class="card reward-card">
-      <p class="sub">🎉 You earned a badge!</p>
+      <p id="reward-sub" class="sub">🎉 You earned a badge!</p>
       <div id="reward-emoji" class="reward-emoji"></div>
       <h2 id="reward-name"></h2>
       <p id="reward-prize" class="reward-prize"></p>
@@ -176,6 +213,7 @@
     </div>
   </section>
 
+  <div id="race-count" class="race-count hidden" aria-hidden="true"></div>
   <div id="toast" class="toast hidden"></div>
   <canvas id="confetti"></canvas>
   <div id="fade"></div>

@@ -9,10 +9,13 @@ export const BOTTOMS = ['pants', 'shorts', 'skirt', 'leggings'];
 export const SHOES = ['sneakers', 'boots', 'sandals', 'lightup'];
 // Hats are unlocked by passport badges (see BADGES in data.js); 'none' is always allowed.
 export const HATS = ['none', 'chef', 'crown', 'shades'];
+// Pet sidekicks are free to pick in the closet. Only the id crosses the network.
+export const PETS = ['none', 'puppy', 'kitten', 'dino', 'dragon'];
 
 export const EMOTES = ['wave', 'yum', 'wow', 'thumbs', 'silly', 'kiss', 'dance', 'heart', 'jump',
   'spicy', 'sour', 'cold', 'yuck']; // the last four are food reactions
-export const ANIMS = ['idle', 'walk', 'review', 'air', 'slide']; // air = bounce pad, slide = riding the slide
+// air = bounce pad, slide = riding the slide, scoot = on the scooter
+export const ANIMS = ['idle', 'walk', 'review', 'air', 'slide', 'scoot'];
 
 // Preset speech lines. Only the index is sent over the network — never free text.
 export const LINES = [
@@ -29,6 +32,7 @@ export const LINES = [
   "Let's go eat!",
   'Wanna race?',
 ];
+export const RACE_LINE = LINES.indexOf('Wanna race?'); // saying it in the plaza starts a race
 
 // Fun names are built from two preset word lists (no typing, ever).
 export const NAME_ADJ = ['Sparkly', 'Happy', 'Silly', 'Speedy', 'Cozy', 'Super', 'Giggly', 'Sunny',
@@ -40,6 +44,47 @@ export const RESTAURANT_IDS = RESTAURANTS.map((r) => r.id);
 
 export const WORLD_LIMIT = 60;
 export const HEIGHT_LIMIT = 12; // highest a player can be off the ground (bounce pads, the slide)
+
+// The town ring: restaurant i stands RING_RADIUS from the fountain at ringAngle(i) (world.js builds it).
+export const RING_RADIUS = 42; // room for 20 buildings (each 8–11 wide)
+/** Angle of ring slot `i` (fractions sit between buildings). Slot 0 is straight ahead of the spawn point. */
+export const ringAngle = (i) => (i / RESTAURANTS.length) * Math.PI * 2 + Math.PI;
+
+// Emotes and preset lines share one token bucket per player on the server.
+// The dance party spaces its moves to stay inside it (dance.js).
+export const EMOTE_LIMIT = Object.freeze({ burst: 4, perSecond: 1.5 });
+
+// Race to a restaurant. A player only ever sends { t: 'race' }: the server picks the door, starts
+// the countdown for everyone and names the winner from the positions it already relays.
+export const RACE = Object.freeze({
+  countdown: 3, // seconds of "3, 2, 1" before GO
+  timeout: 60, // seconds after GO before the race is called off
+  cooldown: 10, // seconds before the same player may start another race
+  rest: 6, // seconds the whole town rests after a race before the next can start
+  doorDist: 37.45, // every door is this far from the fountain, give or take 0.3
+  reach: 3.1, // this close to the door means you have arrived
+  headStart: 18, // the door is at least this far from every racer
+  topSpeed: 12.5, // nobody gets to the door faster than this (the scooter does 11.5)
+});
+
+/** Roughly where restaurant `rid`'s door is ({ x, z }), or null for an unknown id. */
+export function raceDoorSpot(rid) {
+  const i = RESTAURANT_IDS.indexOf(rid);
+  if (i < 0) return null;
+  const a = ringAngle(i);
+  return { x: Math.sin(a) * RACE.doorDist, z: Math.cos(a) * RACE.doorDist };
+}
+
+/** Pick a door to race to that is a fair run from every racer. positions: [{ x, z }]. */
+export function pickRaceTarget(positions, rand = Math.random) {
+  const far = RESTAURANT_IDS.map((rid) => {
+    const spot = raceDoorSpot(rid);
+    return { rid, nearest: Math.min(Infinity, ...positions.map((p) => Math.hypot(p.x - spot.x, p.z - spot.z))) };
+  });
+  let fair = far.filter((d) => d.nearest >= RACE.headStart);
+  if (!fair.length) fair = [far.reduce((a, b) => (b.nearest > a.nearest ? b : a))]; // crowded town: the farthest door
+  return fair[Math.min(fair.length - 1, Math.floor(rand() * fair.length))].rid;
+}
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 export const isHex = (v) => typeof v === 'string' && HEX_RE.test(v);
@@ -66,6 +111,7 @@ export const DEFAULT_APPEARANCE = Object.freeze({
   shoes: 'lightup',
   shoesColor: '#ffffff',
   hat: 'none',
+  pet: 'none',
 });
 
 const APPEARANCE_SCHEMA = {
@@ -83,11 +129,12 @@ const APPEARANCE_SCHEMA = {
   shoes: oneOf(SHOES),
   shoesColor: isHex,
   hat: oneOf(HATS),
+  pet: oneOf(PETS),
 };
 
 // Fields added after launch. A page left open from before the update doesn't send them,
 // so a missing one takes this value instead of failing the whole appearance.
-const LATER_FIELDS = { hat: 'none' };
+const LATER_FIELDS = { hat: 'none', pet: 'none' };
 
 function normalize(k, v) {
   if (k === 'skin') return Math.round(v * 1000) / 1000;

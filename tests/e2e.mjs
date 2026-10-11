@@ -1,15 +1,24 @@
 // End-to-end test: starts the real server on a free port, opens two iPad-like
 // touch pages in the same room and checks loading, multiplayer, the joystick,
 // the town layout, the playground (bounce pads + slide), restaurant visits, food
-// reactions, the sushi conveyor belt, the Mystery Plate and the sticker passport with its hats.
+// reactions, the sushi conveyor belt, the Mystery Plate, the sticker passport with its hats,
+// and Phase 3: scooter, pets, races, the ingredient hunt, missions, the comic camera and the dance party.
 import { spawn, execSync } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
-import { RESTAURANT_IDS, WORLD_LIMIT, HEIGHT_LIMIT, EMOTES, HATS } from '../public/js/schema.js';
-import { RESTAURANTS, MYSTERY_TWISTS, FOOD_REACTIONS, BADGES, HAT_INFO } from '../public/js/data.js';
+import {
+  RESTAURANT_IDS, WORLD_LIMIT, HEIGHT_LIMIT, EMOTES, HATS, PETS, LINES, RACE, RACE_LINE, EMOTE_LIMIT, raceDoorSpot, pickRaceTarget,
+} from '../public/js/schema.js';
+import {
+  RESTAURANTS, MYSTERY_TWISTS, FOOD_REACTIONS, BADGES, HAT_INFO, PET_INFO, MISSIONS, FOOD_TAGS, INGREDIENTS, RECIPE_WORDS, RECIPE_DISHES,
+  VF_FRAMES, VF_TITLES, COMIC_WORDS, DANCE_MOVES,
+} from '../public/js/data.js';
 import { passportProgress } from '../public/js/passport.js';
+import { huntLayout, recipeFor, repairHunt, HUNT_SIZE } from '../public/js/hunt.js';
+import { newMissions, applyReview, menuGoal, repairMissions } from '../public/js/missions.js';
+import { DanceRound, DANCE, DANCE_GAP } from '../public/js/dance.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOM = `test-room-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -118,12 +127,17 @@ async function serverChecks(port) {
   b.send(JSON.stringify({ t: 'hello', app: { ...app, name: 'Silly Pickle', evil: '<script>' } }));
   await sleep(300);
   const join = a.msgs.find((m) => m.t === 'join');
-  check(join && join.app.name === 'Silly Pickle' && !('evil' in join.app) && join.app.hat === 'none', 'unknown fields are dropped on relay');
+  check(join && join.app.name === 'Silly Pickle' && !('evil' in join.app) && join.app.hat === 'none' && join.app.pet === 'none', 'unknown fields are dropped on relay');
   b.send(JSON.stringify({ t: 'app', app: { ...app, name: 'Silly Pickle', hat: 'wizard' } }));
   b.send(JSON.stringify({ t: 'app', app: { ...app, name: 'Silly Pickle', hat: 'crown', text: 'hi' } }));
   await sleep(300);
   const apps = a.msgs.filter((m) => m.t === 'app');
   check(apps.length === 1 && apps[0].app.hat === 'crown' && !('text' in apps[0].app), 'hats sync as a preset enum; unknown hats are not relayed');
+  b.send(JSON.stringify({ t: 'app', app: { ...app, name: 'Silly Pickle', pet: 'unicorn' } }));
+  b.send(JSON.stringify({ t: 'app', app: { ...app, name: 'Silly Pickle', pet: 'dragon', petName: 'Bitey' } }));
+  await sleep(300);
+  const pets = a.msgs.filter((m) => m.t === 'app').slice(1);
+  check(pets.length === 1 && pets[0].app.pet === 'dragon' && !('petName' in pets[0].app), 'pets sync as a preset enum too (no pet names); unknown pets are not relayed');
   b.send(JSON.stringify({ t: 'chat', text: 'hello' }));
   b.send(JSON.stringify({ t: 'say', l: 999 }));
   b.send(JSON.stringify({ t: 'emo', e: 'rude' }));
@@ -136,10 +150,12 @@ async function serverChecks(port) {
   b.send(JSON.stringify({ t: 'st', x: 2, z: 1, ry: 0, an: 'slide', y: -4 }));
   b.send(JSON.stringify({ t: 'st', x: 3, z: 1, ry: 0, an: 'air', y: 'high' }));
   b.send(JSON.stringify({ t: 'st', x: 4, z: 1, ry: 0, an: 'fly', y: 1 }));
+  b.send(JSON.stringify({ t: 'st', x: 5, z: 1, ry: 0, an: 'scoot', y: 0 }));
   await sleep(300);
   const sts = a.msgs.filter((m) => m.t === 'st');
   check(sts.some((m) => m.an === 'air' && m.y === HEIGHT_LIMIT) && sts.some((m) => m.an === 'slide' && m.y === 0) && !sts.some((m) => m.x === 3 || m.x === 4),
     `bounce / slide heights are clamped to 0–${HEIGHT_LIMIT}; bad heights and unknown moves are not relayed`);
+  check(sts.some((m) => m.x === 5 && m.an === 'scoot'), 'riding the scooter is one of the moves the server knows');
   b.send(JSON.stringify({ t: 'emo', e: 'spicy', text: 'free text' }));
   await sleep(300);
   const emo = a.msgs.find((m) => m.t === 'emo');
@@ -148,6 +164,63 @@ async function serverChecks(port) {
   await sleep(300);
   check(b.readyState !== WebSocket.OPEN, 'oversized (>4KB) message closes the socket');
   a.close();
+
+  // races: the server picks the door, runs the countdown and names the winner
+  const c = await open('race-check-1');
+  const d = await open('race-check-1');
+  c.send(JSON.stringify({ t: 'hello', app }));
+  d.send(JSON.stringify({ t: 'hello', app: { ...app, name: 'Silly Pickle' } }));
+  await sleep(300);
+  const dId = d.msgs.find((m) => m.t === 'welcome').id;
+  const at = (ws, x, z, an = 'walk') => ws.send(JSON.stringify({ t: 'st', x, z, ry: 0, an }));
+  at(c, 0, 9);
+  at(d, 0, 7);
+  const go = Date.now() + RACE.countdown * 1000; // when the countdown ends, give or take a few ms
+  const until = (ms) => sleep(Math.max(0, go + ms - Date.now()));
+  c.send(JSON.stringify({ t: 'race', r: 'mcd', text: 'meet me there', x: 1 }));
+  c.send(JSON.stringify({ t: 'race' }));
+  d.send(JSON.stringify({ t: 'race' }));
+  await sleep(400);
+  const starts = d.msgs.filter((m) => m.t === 'race');
+  const start = starts[0] || {};
+  check(starts.length === 1 && c.msgs.filter((m) => m.t === 'race').length === 1, 'starting a race tells everyone in the room, and there is only one race at a time');
+  check(RESTAURANT_IDS.includes(start.r) && Object.keys(start).sort().join() === 'id,r,t', 'a race start carries nothing a player typed or chose: the server picks the door');
+  const spot = raceDoorSpot(start.r) || { x: 0, z: 0 };
+  check(Math.hypot(spot.x, spot.z - 9) >= RACE.headStart && Math.hypot(spot.x, spot.z - 7) >= RACE.headStart, `the door is a fair run (at least ${RACE.headStart}) from every racer`);
+  at(d, spot.x, spot.z);
+  await sleep(300);
+  check(!c.msgs.some((m) => m.t === 'win'), 'standing at the door before GO does not win (no false starts)');
+  at(d, 0, 7);
+  await until(200);
+  at(c, 1e9, 1e9); // off the map is clamped, not at the door
+  at(d, spot.x, spot.z, 'review'); // inside a restaurant: not racing
+  at(d, spot.x + 1, spot.z - 1); // at the door 0.2 s after GO: nobody runs that fast
+  await sleep(300);
+  check(!c.msgs.some((m) => m.t === 'win'), 'being off the map, inside a restaurant, or at the door sooner than anyone could run there does not win');
+  const run = Math.hypot(spot.x, spot.z - 7) - RACE.reach; // how far d (who set off from 0, 7) has to go
+  await until((run / RACE.topSpeed) * 1000 + 150);
+  at(d, spot.x + 1, spot.z - 1);
+  await sleep(300);
+  const win = c.msgs.find((m) => m.t === 'win');
+  check(win && win.id === dId && Object.keys(win).sort().join() === 'id,t' && d.msgs.some((m) => m.t === 'win' && m.id === dId),
+    `after a run that could be real (${(run / RACE.topSpeed).toFixed(1)} s for ${run.toFixed(0)} units), the first player at the door wins and everyone is told who`);
+  c.send(JSON.stringify({ t: 'race' }));
+  d.send(JSON.stringify({ t: 'race' }));
+  await sleep(300);
+  check(c.msgs.filter((m) => m.t === 'race').length === 1, `the town rests for ${RACE.rest} s after a race, and a player can only start one every ${RACE.cooldown} s`);
+  await sleep(RACE.rest * 1000);
+  d.send(JSON.stringify({ t: 'race' }));
+  await sleep(300);
+  const second = c.msgs.filter((m) => m.t === 'race')[1];
+  check(second && second.id === dId, 'after the rest another player can start the next race');
+  const late = await open('race-check-1');
+  late.send(JSON.stringify({ t: 'hello', app: { ...app, name: 'Jolly Waffle' } }));
+  await sleep(300);
+  const joined = late.msgs.find((m) => m.t === 'welcome')?.race;
+  check(joined && second && joined.r === second.r && joined.ms <= RACE.countdown * 1000 && Object.keys(joined).sort().join() === 'ms,r', 'someone who joins mid-race is told about it (door and time to GO, nothing else)');
+  c.close();
+  d.close();
+  late.close();
 
   // max 8 per room
   const crowd = [];
@@ -280,7 +353,7 @@ async function main() {
     check(foods.count >= 71 && foods.missing.length === 0, `all ${foods.count} foods have their own 3D model${foods.missing.length ? ` (missing: ${foods.missing})` : ''}`);
     check(foods.mostMeshes <= 16 && foods.untinted.length === 0, `food models are merged (≤${foods.mostMeshes} draw calls each) and every Mystery twist builds`);
     const perf = await A.evaluate(() => window.__t42.renderInfo());
-    check(perf.calls < 160 && perf.triangles < 110000, `town stays light for iPad (${perf.calls} draw calls, ${perf.triangles} triangles)`);
+    check(perf.calls < 120 && perf.triangles < 110000, `town stays light for iPad (${perf.calls} draw calls, ${perf.triangles} triangles)`);
 
     console.log('\n🎪 Playground: bounce pads + slide');
     const play = await A.evaluate(() => ({ pads: window.__t42.pads(), slide: window.__t42.slide() }));
@@ -350,8 +423,9 @@ async function main() {
     const riding = await A.evaluate(() => window.__t42.belt());
     check(riding.active && riding.plates.length === 8 && sushi.menu.every((m) => riding.plates.some((p) => p.id === m.id)) && riding.plates.filter((p) => p.id === 'mystery').length === 1,
       'every sushi item rides the belt, plus one Mystery Plate dome');
+    await sleep(600); // let a frame of the belt be drawn (the first reading can still be the plaza's)
     const beltPerf = await A.evaluate(() => window.__t42.renderInfo());
-    check(beltPerf.calls < 160, `the belt stays light for iPad (${beltPerf.calls} draw calls)`);
+    check(beltPerf.calls < 120 && beltPerf.triangles > 20000, `the belt stays light for iPad (${beltPerf.calls} draw calls)`);
     await A.locator('#belt-fast').tap();
     const fast = await A.evaluate(() => ({ speed: window.__t42.belt().speed, on: document.querySelector('#belt-fast').classList.contains('on') }));
     await A.locator('#belt-slow').tap();
@@ -557,6 +631,294 @@ async function main() {
     check((await A.locator('.book-page li .fn').allTextContents()).includes(mystery.name), 'the Mystery Plate is in the scrapbook by name');
     check((await A.locator('#book-summary').textContent()).includes(`3 of ${RESTAURANT_IDS.length} restaurants`), 'scrapbook counts restaurants from the data (no hard-coded 7)');
     await A.locator('#book-close').tap();
+
+    const teleport = (page, x, z, yaw) => page.evaluate(([px, pz, pyaw]) => window.__t42.teleport(px, pz, pyaw), [x, z, yaw]);
+    const size = (page, sel) => page.locator(sel).evaluate((b) => Math.min(b.offsetWidth, b.offsetHeight));
+    const nameA = await A.evaluate(() => JSON.parse(localStorage.getItem('t42.appearance')).name);
+
+    console.log('\n🛴 Scooter');
+    // a clear run: from the fountain, under the welcome arch and down the path beyond it
+    await teleport(A, 0, 10, Math.PI);
+    await A.keyboard.down('w');
+    check(await waitFor(A, () => window.__t42.speed() > 6.5, null, 15000), 'walking gets up to walking speed');
+    await sleep(300);
+    const walkSpeed = await A.evaluate(() => window.__t42.speed());
+    await A.keyboard.up('w');
+    await teleport(A, 0, 10, Math.PI);
+    check(await size(A, '#btn-scooter') >= 56, `the scooter button is a big touch target (${await size(A, '#btn-scooter')}px)`);
+    await A.locator('#btn-scooter').tap();
+    check(await A.evaluate(() => window.__t42.scooter() && document.querySelector('#btn-scooter').getAttribute('aria-pressed') === 'true'), 'tapping 🛴 hops on the scooter');
+    await A.keyboard.down('w');
+    const zoomed = await waitFor(A, (walk) => window.__t42.speed() > walk * 1.4, walkSpeed, 15000);
+    const scootSpeed = await A.evaluate(() => window.__t42.speed());
+    check(zoomed && walkSpeed < 7.6, `the scooter is faster than walking (${scootSpeed.toFixed(1)} vs ${walkSpeed.toFixed(1)})`);
+    check(await waitFor(B, () => window.__t42.remoteAnims().includes('scoot'), null, 5000), 'the friend sees the ride (a new "scoot" move, synced like walking)');
+    await A.keyboard.up('w');
+    await A.locator('#btn-scooter').tap();
+    check(await A.evaluate(() => !window.__t42.scooter()) && await waitFor(B, () => !window.__t42.remoteAnims().includes('scoot'), null, 5000), 'tapping it again hops off, for the friend too');
+
+    console.log('\n🐶 Pet sidekick');
+    const petModels = await A.evaluate(async () => {
+      const { hasPetModel } = await import('/js/pet.js');
+      const { PETS: ids } = await import('/js/schema.js');
+      return ids.filter((p) => p !== 'none' && !hasPetModel(p));
+    });
+    check(PETS.join() === 'none,puppy,kitten,dino,dragon' && PETS.every((p) => PET_INFO[p]) && petModels.length === 0, 'puppy, kitten, dino and dragon each have their own model');
+    await teleport(A, 0, 12, 0);
+    await A.locator('#btn-closet').tap();
+    await A.locator('#studio-tabs .tab[data-id="pet"]').tap();
+    check(await A.locator('.opt[data-value]').count() === PETS.length && await A.locator('.opt.on[data-value="none"]').count() === 1, 'the closet has a Pets tab; you start with no pet');
+    await A.locator('.opt[data-value="dragon"]').tap();
+    check((await A.evaluate(() => window.__t42.pet())) === 'dragon', 'picking the dragon gives you a dragon');
+    check(await waitFor(B, () => window.__t42.remotePets().includes('dragon'), null, 10000), 'the friend sees the pet (it is part of the appearance)');
+    await A.locator('.opt[data-value="puppy"]').tap();
+    await A.locator('#studio-done').tap();
+    check((await A.evaluate(() => JSON.parse(localStorage.getItem('t42.appearance')).pet)) === 'puppy', 'the pet is saved for next time');
+    check(await waitFor(B, () => window.__t42.remotePets().includes('puppy'), null, 10000), 'swapping pets is synced too');
+    await teleport(A, -12, 22, 0);
+    check(await waitFor(A, () => window.__t42.petDistance() >= 0 && window.__t42.petDistance() < 3, null, 15000), 'the pet keeps up with its reviewer');
+
+    console.log('\n🏁 Race to a restaurant');
+    const doorError = Math.max(...town.list.map((r) => Math.hypot(raceDoorSpot(r.id).x - r.door.x, raceDoorSpot(r.id).z - r.door.z)));
+    check(doorError < 0.6 && RACE.reach > doorError + 2.6 - 0.3, `the server knows where every door is without loading the 3D town (off by at most ${doorError.toFixed(2)})`);
+    const racers = [{ x: 0, z: 7 }, town.list[0].door, town.list[7].door];
+    const picks = Array.from({ length: 200 }, (_, i) => pickRaceTarget(racers, () => i / 200));
+    check(new Set(picks).size > 5 && picks.every((rid) => racers.every((p) => Math.hypot(p.x - raceDoorSpot(rid).x, p.z - raceDoorSpot(rid).z) >= RACE.headStart)),
+      `a race picks one of ${new Set(picks).size} doors, never one a racer is already close to`);
+    await teleport(A, 0, 12, 0);
+    await A.locator('#btn-emote').tap();
+    const raceBtn = A.locator(`.say-btn[data-line="${RACE_LINE}"]`);
+    check(LINES[RACE_LINE] === 'Wanna race?' && (await raceBtn.textContent()).includes('Wanna race?') && await raceBtn.evaluate((b) => b.offsetHeight) >= 56, 'the "Wanna race?" preset is in the emote panel');
+    await raceBtn.tap();
+    check(await waitFor(A, () => window.__t42.race()?.state === 'count', null, 5000), 'saying "Wanna race?" starts a countdown');
+    check(await waitFor(B, () => window.__t42.race() !== null, null, 5000), 'the friend is in the race too');
+    const [raceA, raceB] = [await A.evaluate(() => window.__t42.race()), await B.evaluate(() => window.__t42.race())];
+    check(raceA && raceB && raceA.rid === raceB.rid && !raceA.solo && RESTAURANT_IDS.includes(raceA.rid), `everyone races to the same door: ${RESTAURANTS.find((r) => r.id === raceA?.rid)?.name}`);
+    await waitFor(A, () => !document.querySelector('#race-count').classList.contains('hidden'), null, 3000);
+    const countUi = await A.evaluate(() => ({
+      count: document.querySelector('#race-count').textContent, countShown: !document.querySelector('#race-count').classList.contains('hidden'),
+      banner: document.querySelector('#race-text').textContent, bannerShown: !document.querySelector('#race-banner').classList.contains('hidden'),
+    }));
+    check(countUi.countShown && ['3', '2', '1'].includes(countUi.count) && countUi.bannerShown && countUi.banner.includes(RESTAURANTS.find((r) => r.id === raceA.rid).name),
+      `a big "${countUi.count}" counts down under a banner that names the restaurant`);
+    const line = await A.evaluate(() => window.__t42.playerPosition());
+    await A.keyboard.down('w');
+    await sleep(500);
+    const jumped = await A.evaluate(() => window.__t42.playerPosition());
+    check((await A.evaluate(() => window.__t42.race()?.state)) === 'count' && Math.hypot(jumped.x - line.x, jumped.z - line.z) < 0.2, 'nobody can run before GO');
+    check(await waitFor(A, () => window.__t42.race()?.state === 'go', null, 8000), 'GO!');
+    check(await waitFor(A, (p) => Math.hypot(window.__t42.playerPosition().x - p.x, window.__t42.playerPosition().z - p.z) > 1, line, 10000), 'after GO the reviewer is off');
+    await A.keyboard.up('w');
+    const finish = town.list.find((r) => r.id === raceA.rid).door;
+    await teleport(A, finish.x, finish.z);
+    check(await waitFor(A, () => window.__t42.race() === null && window.__t42.lastRace()?.winner === 'me', null, 12000), 'first to the door wins the race (the server says so) 🏆');
+    check(await waitFor(B, (name) => window.__t42.race() === null && window.__t42.lastRace()?.winner === name, nameA, 8000), `the friend is told that ${nameA} won`);
+    check(await A.locator('#race-banner').isHidden() && await B.locator('#race-banner').isHidden(), 'the race banner goes away for everyone');
+    await teleport(A, 0, 12, 0);
+    await A.locator('#btn-emote').tap();
+    await raceBtn.tap();
+    await sleep(800);
+    check((await A.evaluate(() => window.__t42.race())) === null && (await B.evaluate(() => window.__t42.race())) === null, 'a player has to catch their breath before starting another race');
+
+    console.log('\n🔍 Hidden ingredient hunt');
+    const hunt0 = huntLayout(0);
+    check(hunt0.length === HUNT_SIZE && new Set(hunt0.map((it) => it.id)).size === HUNT_SIZE && hunt0.every((it) => INGREDIENTS.some((i) => i.id === it.id))
+      && JSON.stringify(hunt0) === JSON.stringify(huntLayout(0)) && JSON.stringify(huntLayout(1)) !== JSON.stringify(hunt0),
+      'every hunt hides six different ingredients, in the same places after a reload, and in new places next time');
+    const presetWords = new Set([...RECIPE_WORDS, ...RECIPE_DISHES.map((dsh) => dsh.name), ...INGREDIENTS.map((i) => i.name), '&']);
+    const recipes = Array.from({ length: 30 }, (_, n) => recipeFor(n));
+    check(recipes.every((r) => r.name.split(' ').every((w) => presetWords.has(w)) && RECIPE_DISHES.some((dsh) => dsh.emoji === r.emoji)), `silly recipes are made of preset words only: "${recipes[0].name}"`);
+    check(repairHunt({ n: 2, found: ['<b>', huntLayout(2)[0].id, 7] }).found.join() === huntLayout(2)[0].id && repairHunt('junk').n === 0 && repairHunt({ n: -4 }).n === 0, 'saved hunt progress is checked when it is loaded');
+    const noModel = await A.evaluate(async () => {
+      const { hasIngredientModel } = await import('/js/ingredients.js');
+      const { INGREDIENTS: list } = await import('/js/data.js');
+      return list.filter((i) => !hasIngredientModel(i.id)).map((i) => i.id);
+    });
+    check(INGREDIENTS.length >= HUNT_SIZE && noModel.length === 0, `all ${INGREDIENTS.length} giant ingredients have their own 3D model`);
+    const hunting = await A.evaluate(() => window.__t42.hunt());
+    check(hunting.n === 0 && hunting.items.length === HUNT_SIZE && hunting.showing === HUNT_SIZE && hunting.items.every((it) => Math.hypot(it.x, it.z) < town.edge)
+      && ['grass', 'gap', 'back'].every((w) => hunting.items.filter((it) => it.where === w).length === 2),
+      'six ingredients are hidden around town: two in the grass, two between buildings, two behind them');
+    check((await A.locator('#hunt-count').textContent()) === `0/${HUNT_SIZE}` && await size(A, '#btn-hunt') >= 56 && await size(A, '#btn-missions') >= 56, 'the hunt and missions buttons are big touch targets');
+    await teleport(A, hunting.items[0].x, hunting.items[0].z);
+    check(await waitFor(A, () => window.__t42.hunt().found.length === 1, null, 8000), 'walking into a giant ingredient picks it up');
+    check((await A.locator('#hunt-count').textContent()) === `1/${HUNT_SIZE}` && (await A.evaluate(() => JSON.parse(localStorage.getItem('t42.quests')).hunt.found.join())) === hunting.items[0].id,
+      'the find is counted and saved on this device');
+    const friendHunt = await B.evaluate(() => window.__t42.hunt());
+    check(friendHunt.found.length === 0 && friendHunt.showing === HUNT_SIZE, "the friend's ingredients are untouched (the hunt is personal)");
+    for (const [i, it] of hunting.items.entries()) {
+      if (i === 0) continue;
+      await teleport(A, it.x, it.z);
+      await waitFor(A, (n) => { const h = window.__t42.hunt(); return h.n === 1 || h.found.length === n; }, i + 1, 8000);
+    }
+    check(await waitFor(A, () => window.__t42.mode() === 'reward', null, 10000), 'finding all six cooks a silly recipe');
+    check((await A.locator('#reward-name').textContent()) === recipeFor(0).name && await A.locator('#reward-later').isHidden() && await size(A, '#reward-wear') >= 56,
+      `the recipe sticker: "${recipeFor(0).name}"`);
+    await A.locator('#reward-wear').tap();
+    const hunt1 = await A.evaluate(() => window.__t42.hunt());
+    check(hunt1.n === 1 && hunt1.found.length === 0 && hunt1.showing === HUNT_SIZE && (await A.locator('#hunt-count').textContent()) === `0/${HUNT_SIZE}`, 'then a fresh hunt begins');
+    check(await waitFor(A, () => window.__t42.mode() === 'plaza', null, 5000), 'back in the plaza');
+    await A.locator('#btn-hunt').tap();
+    check(await A.locator('#book-tab-hunt.on').count() === 1 && await A.locator('.hunt-item').count() === HUNT_SIZE && await A.locator('.hunt-item.got').count() === 0, 'the 🔍 button opens the hunt page, with picture hints for where to look');
+    check(await A.locator('.recipe').count() === 1 && (await A.locator('.recipe').textContent()).includes(recipeFor(0).name), 'the recipe sticker is kept in the scrapbook');
+    await A.locator('#book-close').tap();
+
+    console.log('\n🎯 Reviewer missions');
+    const foodIds = new Set(RESTAURANTS.flatMap((r) => r.menu.map((m) => m.id)));
+    check(MISSIONS.length >= 10 && MISSIONS.every((m) => m.pics && m.title && m.need >= 1) && Object.values(FOOD_TAGS).flat().every((id) => foodIds.has(id)),
+      `${MISSIONS.length} picture missions, and every food tag points at a real food`);
+    const fresh = newMissions();
+    const taco = { rid: 'tacobell', fid: 'taco', stars: 3, react: null, mystery: false, isNew: true };
+    const crunch = applyReview(fresh, taco);
+    check(fresh.active.map((m) => m.id).join() === 'crunchy,three,cold' && crunch.completed.map((m) => m.id).join() === 'crunchy' && crunch.state.done === 1
+      && crunch.state.active.length === 3 && !crunch.state.active.some((m) => m.id === 'crunchy') && fresh.done === 0,
+      'reviewing something crunchy finishes "Find something crunchy", and a new mission takes its place');
+    const sameAgain = applyReview(crunch.state, { ...taco, isNew: false });
+    const three = (st) => st.active.find((m) => m.id === 'three').have;
+    check(three(crunch.state) === 1 && three(sameAgain.state) === 1 && three(applyReview(sameAgain.state, { ...taco, rid: 'jj', fid: 'chips' }).state) === 2,
+      '"3 different restaurants" counts each restaurant once');
+    check(menuGoal(fresh, { rid: 'sundae', fid: 'sundae', react: 'cold', isNew: true }) && !menuGoal({ ...fresh, active: [{ id: 'stars', have: 0, seen: [] }] }, taco)
+      && JSON.stringify(repairMissions('junk')) === JSON.stringify(fresh)
+      && repairMissions({ active: [{ id: 'nope' }, { id: 'three', have: 99, seen: ['<script>', 'jj'] }], done: -1 }).active.map((m) => `${m.id}:${m.have}:${m.seen}`)[0] === 'three:1:jj',
+      'menu 🎯 tags follow the missions, and saved mission progress is checked when it is loaded');
+    const odd = repairMissions({ active: [{ id: 'constructor' }, { id: '__proto__' }, { id: 'toString', have: 1 }], done: 1, next: 0 });
+    check(odd.active.length === 3 && odd.active.every((m) => MISSIONS.some((x) => x.id === m.id)), 'odd saved mission ids (even "constructor") are dropped, not trusted');
+    const mine = await A.evaluate(() => window.__t42.missions());
+    check(mine.done >= 2 && mine.active.length === 3 && !mine.active.some((m) => m.id === 'three' || m.id === 'cold'), `the reviews filmed so far finished ${mine.done} missions (3 restaurants, a brain freeze…)`);
+    await A.locator('#btn-missions').tap();
+    const cards = await A.locator('.mission-card').evaluateAll((els) => els.map((el) => ({ id: el.dataset.id, pics: el.querySelector('.ms-pics').textContent, pips: el.querySelectorAll('.ms-pips i').length })));
+    check(await A.locator('#book-tab-missions.on').count() === 1 && cards.length === 3 && cards.every((cd) => cd.pics === MISSIONS.find((m) => m.id === cd.id).pics && cd.pips === MISSIONS.find((m) => m.id === cd.id).need),
+      `the 🎯 button opens three picture missions: ${cards.map((cd) => cd.pics).join('  ')}`);
+    check((await A.locator('.rank-card').textContent()).includes(`${mine.done} missions done`), 'finished missions add up to a reviewer rank');
+    await A.locator('#book-close').tap();
+
+    console.log('\n💥 Comic camera');
+    const tacoBell = RESTAURANTS.find((r) => r.id === 'tacobell');
+    await goIn(tacoBell.id);
+    const goals = tacoBell.menu.filter((m) => menuGoal(mine, { rid: tacoBell.id, fid: m.id, react: m.react || null, isNew: true })).map((m) => m.id);
+    const tagged = await A.locator('.menu-item:has(.mi-goal)').evaluateAll((els) => els.map((el) => el.dataset.id));
+    check(goals.length > 0 && tagged.join() === goals.join(), `foods that count for a mission get a 🎯 on the menu (${tagged.join(', ')})`);
+    await A.locator('.menu-item[data-id="taco"]').tap();
+    check(await waitFor(A, () => window.__t42.mode() === 'review'), 'ordered a crunchy taco');
+    const look = () => A.evaluate(() => ({ frame: document.querySelector('#viewfinder').dataset.frame, show: document.querySelector('#vf-show').textContent, label: document.querySelector('#frame-name').textContent }));
+    const plain = await look();
+    check(plain.frame === VF_FRAMES[0].id && plain.show === VF_TITLES[0], 'the viewfinder starts with the classic frame and show title');
+    check(await size(A, '#btn-frame') >= 56 && await size(A, '#btn-title') >= 56, 'the frame and title buttons are big touch targets');
+    await A.locator('#btn-frame').tap();
+    await A.locator('#btn-frame').tap();
+    await A.locator('#btn-title').tap();
+    const fancy = await look();
+    check(fancy.frame === VF_FRAMES[2].id && fancy.label.includes(VF_FRAMES[2].label) && fancy.show === VF_TITLES[1], `tapping them picks a preset frame and title: ${fancy.label} / "${fancy.show}"`);
+    const popped = (words) => waitFor(A, (list) => {
+      const el = document.querySelector('#comic-pop');
+      return !el.classList.contains('hidden') && list.includes(el.textContent);
+    }, words, 6000);
+    await A.locator('.rv-emote.bite').tap();
+    check(await popped(COMIC_WORDS.crunchy), `a bite of crunchy taco bursts "${COMIC_WORDS.crunchy[0]}" onto the screen`);
+    await sleep(1100);
+    await A.locator('.rv-emote').nth(1).tap();
+    check(await popped(COMIC_WORDS.yum), `emotes get comic words too: "${COMIC_WORDS.yum[0]}"`);
+    check(Object.values(COMIC_WORDS).flat().every((w) => /^[A-Z !]+$/.test(w)) && VF_TITLES.length >= 5 && VF_FRAMES.length >= 5, 'comic words, frames and titles are all preset');
+    await rateAndLeave(4);
+    const filmed = (await A.evaluate(() => JSON.parse(localStorage.getItem('t42.reviews')))).pop();
+    check(filmed.rid === 'tacobell' && filmed.frame === VF_FRAMES[2].id && filmed.title === 1, 'the frame and title are saved with the review');
+    check((await A.evaluate(() => JSON.parse(localStorage.getItem('t42.settings')).frame)) === VF_FRAMES[2].id, 'and remembered for the next review');
+    await A.locator('#btn-reviews').tap();
+    await A.locator('#book-tab-reviews').tap();
+    check((await A.locator('.book-page li .deco').allTextContents()).some((t) => t.includes(VF_FRAMES[2].icon) && t.includes(VF_TITLES[1])), 'the scrapbook shows how each review was filmed');
+    const pageFits = await A.locator('.book-page').first().evaluate((pg) => pg.querySelector('li').getBoundingClientRect().bottom <= pg.getBoundingClientRect().bottom + 1);
+    check(pageFits, 'scrapbook pages are tall enough to read their reviews');
+    await A.locator('#book-close').tap();
+    const junk = await B.evaluate(async () => {
+      const { loadReviews, loadSettings, loadQuests } = await import('/js/storage.js');
+      localStorage.setItem('t42.reviews', JSON.stringify([{ rid: 'jj', food: 'Giant Cookie', stars: 4, ts: 1, frame: '<img>', title: 99 }]));
+      localStorage.setItem('t42.settings', JSON.stringify({ frame: 'evil', title: -3 }));
+      localStorage.setItem('t42.quests', JSON.stringify({ hunt: { n: 'x', found: ['<b>'] }, missions: { active: [{ id: 'nope' }], done: -1 }, dance: { best: 'lots' } }));
+      const out = { review: loadReviews()[0], settings: loadSettings(), quests: loadQuests() };
+      for (const key of ['t42.reviews', 't42.settings', 't42.quests']) localStorage.removeItem(key);
+      return out;
+    });
+    check(junk.review.frame === 'classic' && junk.review.title === 0 && junk.settings.frame === 'classic' && junk.settings.title === 0 && junk.quests.hunt.n === 0
+      && junk.quests.hunt.found.length === 0 && junk.quests.missions.active.length === 3 && junk.quests.missions.done === 0 && junk.quests.dance.best === 0 && !JSON.stringify(junk).includes('<'),
+      'anything odd in saved decorations or quests falls back to the defaults');
+
+    const tabs = await B.evaluate(async () => {
+      const { loadQuests, saveQuests, mergeQuests } = await import('/js/storage.js');
+      const { huntLayout: layout } = await import('/js/hunt.js');
+      const [first, second] = layout(0).map((it) => it.id);
+      try {
+        // two tabs open: each finds a different ingredient of the same hunt
+        const stale = loadQuests();
+        saveQuests({ ...loadQuests(), hunt: { n: 0, found: [first] } });
+        stale.hunt.found.push(second);
+        const pooled = mergeQuests(stale).hunt.found.length;
+        // then the other tab finishes the hunt and two missions and dances; the stale tab scores a 4
+        saveQuests({ hunt: { n: 1, found: [] }, missions: { ...loadQuests().missions, done: 2 }, dance: { best: 9 } });
+        stale.dance.best = 4;
+        const merged = mergeQuests(stale);
+        return { pooled, n: merged.hunt.n, found: merged.hunt.found.length, done: merged.missions.done, best: merged.dance.best };
+      } finally {
+        localStorage.removeItem('t42.quests');
+      }
+    });
+    check(tabs.pooled === 2 && tabs.n === 1 && tabs.found === 0 && tabs.done === 2 && tabs.best === 9, 'a tab opened earlier never undoes quest progress saved by another tab');
+    const strangeMove = await B.evaluate(async () => {
+      const { Net } = await import('/js/net.js');
+      const net = new Net('some-room', {});
+      return [net.cleanState({ x: 1, z: 2, ry: 0, an: 'moonwalk' })?.an, net.cleanState({ x: 1, z: 2, ry: 0, an: 7 }), net.cleanRace({ r: 'nowhere', ms: 5 }), net.cleanRace({ r: 'sakura', ms: 1e9 })?.ms];
+    });
+    check(strangeMove[0] === 'walk' && strangeMove[1] === null && strangeMove[2] === null && strangeMove[3] === RACE.countdown * 1000,
+      'the page checks what the server sends too: an unknown move is shown as walking, an unknown race door is ignored');
+
+    console.log('\n💃 Plaza dance party');
+    check(DANCE_GAP >= 1 / EMOTE_LIMIT.perSecond && DANCE_GAP - 2 * DANCE.good > 0 && DANCE_MOVES.every((m) => EMOTES.includes(m)),
+      `dance moves are ordinary emotes, one every ${DANCE_GAP} s: inside the server's limit of ${EMOTE_LIMIT.perSecond} a second`);
+    const round = new DanceRound(() => 0);
+    const [p1, p2] = round.prompts;
+    check(round.tap(p1.move, p1.at - 1) === null && round.tap(p1.move, p1.at + 0.05) === 'perfect' && round.tap('nope', p2.at) === 'miss'
+      && round.advance(999) === DANCE.prompts - 2 && round.hits === 1 && round.stars() === 1 && round.done(999),
+      'scoring: on the beat is perfect, the wrong move or no tap is a miss, tapping early does nothing');
+    const floor = await A.evaluate(() => window.__t42.danceFloor());
+    check(Math.hypot(floor.x, floor.z) + floor.r < 16, 'the dance floor is in the plaza');
+    await teleport(A, floor.x, floor.z, 0);
+    check(await waitFor(A, () => document.querySelector('#go-in-text').textContent.includes('Dance') && !document.querySelector('#btn-go-in').classList.contains('hidden'), null, 4000),
+      'a "Dance!" button appears on the dance floor');
+    const emotesBefore = await B.evaluate(() => window.__t42.emotesSeen());
+    await A.locator('#btn-go-in').tap({ force: true });
+    check(await waitFor(A, () => window.__t42.mode() === 'dance'), 'the dance party starts');
+    const moveBtns = await A.locator('.dance-btn').evaluateAll((bs) => bs.map((b) => Math.min(b.offsetWidth, b.offsetHeight)));
+    check(moveBtns.length === DANCE_MOVES.length && moveBtns.every((px) => px >= 56) && await size(A, '#dance-stop') >= 56, `three big move buttons (${Math.min(...moveBtns)}px)`);
+    // play the whole round: tap the pictured move as each prompt reaches its beat
+    const played = await A.evaluate(() => new Promise((resolve) => {
+      const tapped = new Set();
+      const tick = () => {
+        const now = window.__t42.dance();
+        if (!now) return resolve(window.__t42.lastDance());
+        const p = now.prompt;
+        if (p && !tapped.has(p.i) && now.t >= p.at - 0.05) {
+          tapped.add(p.i);
+          document.querySelector(`.dance-btn[data-move="${p.move}"]`).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+        }
+        return setTimeout(tick, 20);
+      };
+      tick();
+    }));
+    check(played && played.total === DANCE.prompts && played.hits >= DANCE.prompts - 3, `tapping the pictured move on the beat scores: ${played?.hits} of ${played?.total}`);
+    check(await waitFor(A, () => window.__t42.mode() === 'reward', null, 5000) && (await A.locator('#reward-name').textContent()).includes(`${played.hits} of ${played.total}`), 'a score card shows the result');
+    await waitFor(B, ([n, hits]) => window.__t42.emotesSeen() - n >= hits, [emotesBefore, played.hits], 5000);
+    const relayed = (await B.evaluate(() => window.__t42.emotesSeen())) - emotesBefore;
+    check(relayed === played.hits, `the friend saw every move that landed (${relayed}): none were dropped by the emote rate limit`);
+    check((await B.evaluate(() => window.__t42.lastDance())) === null && (await A.evaluate(() => JSON.parse(localStorage.getItem('t42.quests')).dance.best)) === played.hits, 'the score is personal: saved on this device, never sent');
+    check((await A.locator('#reward-wear').textContent()).includes('Again') && await size(A, '#reward-later') >= 56, 'the card offers another round');
+    await A.locator('#reward-later').tap();
+    check(await waitFor(A, () => window.__t42.mode() === 'plaza'), 'back in the plaza');
+
+    console.log('\n📱 Still light for iPad');
+    await A.locator('#btn-scooter').tap();
+    await sleep(600);
+    const [busyA, busyB] = [await A.evaluate(() => window.__t42.renderInfo()), await B.evaluate(() => window.__t42.renderInfo())];
+    check(busyA.calls < 120 && busyB.calls < 120 && busyA.triangles < 110000 && busyB.triangles < 110000,
+      `with a pet, a scooter, the dance floor and the hunt in town: ${busyA.calls} / ${busyB.calls} draw calls, ${busyA.triangles} / ${busyB.triangles} triangles`);
 
     await A.screenshot({ path: path.join(ROOT, 'test-results', 'plaza.png') }).catch(() => {});
 

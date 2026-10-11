@@ -11,7 +11,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  ANIMS, EMOTES, LINES, WORLD_LIMIT, HEIGHT_LIMIT, sanitizeAppearance, isValidRoom,
+  ANIMS, EMOTES, LINES, WORLD_LIMIT, HEIGHT_LIMIT, EMOTE_LIMIT, RACE, sanitizeAppearance, isValidRoom,
+  raceDoorSpot, pickRaceTarget,
 } from '../public/js/schema.js';
 
 const ROOT = path.resolve(fileURLToPath(new URL('../public', import.meta.url)));
@@ -175,6 +176,8 @@ export function validateClientMessage(msg) {
       return typeof msg.e === 'string' && EMOTES.includes(msg.e) ? { t: 'emo', e: msg.e } : null;
     case 'say':
       return Number.isInteger(msg.l) && msg.l >= 0 && msg.l < LINES.length ? { t: 'say', l: msg.l } : null;
+    case 'race':
+      return { t: 'race' }; // "start a race": nothing else is read from the client
     default:
       return null;
   }
@@ -187,6 +190,50 @@ const ipConnectRate = new Map(); // ip -> TokenBucket
 let connectionCount = 0;
 
 const newId = () => crypto.randomBytes(6).toString('base64url');
+
+// ---------------------------------------------------------------- races
+// One race per room at a time. The server picks the door and judges the finish from the
+// (already clamped) positions players send, so a client can neither choose the door nor
+// simply claim a win: it has to report being there, after GO, and no sooner than a run takes.
+const races = new Map(); // room code -> { r, spot, goAt, from, timer }
+const raceRests = new Map(); // room code -> when the next race may start (a short rest after each one)
+const SPAWN = { x: 0, z: 7 };
+const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+function startRace(room, starter) {
+  const set = rooms.get(room);
+  if (!set || races.has(room)) return;
+  const racers = [...set].filter((c) => c.app);
+  const r = pickRaceTarget(racers.map((c) => c.st || SPAWN));
+  const spot = raceDoorSpot(r);
+  // `from`: how far each racer has to run, so nobody can win faster than that takes
+  const race = { r, spot, goAt: Date.now() + RACE.countdown * 1000, from: new Map(racers.map((c) => [c, distance(c.st || SPAWN, spot)])) };
+  race.timer = setTimeout(() => endRace(room, null), (RACE.countdown + RACE.timeout) * 1000);
+  race.timer.unref();
+  races.set(room, race);
+  broadcast(room, { t: 'race', id: starter.id, r });
+}
+
+/** winner: the client who got there first, or null when time ran out. */
+function endRace(room, winner) {
+  const race = races.get(room);
+  if (!race) return;
+  clearTimeout(race.timer);
+  races.delete(room);
+  raceRests.set(room, Date.now() + RACE.rest * 1000);
+  broadcast(room, winner ? { t: 'win', id: winner.id } : { t: 'win' });
+}
+
+function checkFinish(client) {
+  const race = races.get(client.room);
+  if (!race || client.st.an === 'review') return; // no race on, or inside a restaurant
+  const sinceGo = (Date.now() - race.goAt) / 1000;
+  if (sinceGo < 0 || distance(client.st, race.spot) >= RACE.reach) return; // a false start, or not there yet
+  // someone who joined after the start set off from the spawn point
+  const run = (race.from.get(client) ?? distance(SPAWN, race.spot)) - RACE.reach;
+  if (sinceGo * RACE.topSpeed + 1 < run) return; // there sooner than anyone could run it: not a real finish
+  endRace(client.room, client);
+}
 
 function sendJson(ws, obj) {
   if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < LIMITS.maxBufferedBytes) ws.send(JSON.stringify(obj));
@@ -225,8 +272,9 @@ function onConnection(ws, room, ip) {
     st: null,
     alive: true,
     msgBucket: new TokenBucket(30, 20), // state @10Hz + extras
-    emoteBucket: new TokenBucket(4, 1.5), // emotes / preset lines
+    emoteBucket: new TokenBucket(EMOTE_LIMIT.burst, EMOTE_LIMIT.perSecond), // emotes / preset lines
     appBucket: new TokenBucket(4, 0.5), // appearance updates
+    raceBucket: new TokenBucket(1, 1 / RACE.cooldown), // starting a race
     strikes: new TokenBucket(30, 1), // misbehaviour budget
   };
   connectionCount++;
@@ -273,7 +321,8 @@ function onConnection(ws, room, ip) {
       client.app = msg.app;
       clearTimeout(helloTimer);
       const peers = [...set].filter((c) => c !== client && c.app).map((c) => ({ id: c.id, app: c.app, st: c.st }));
-      sendJson(ws, { t: 'welcome', id: client.id, peers, max: LIMITS.maxPerRoom });
+      const race = races.get(room); // a race already under way: the newcomer joins it
+      sendJson(ws, { t: 'welcome', id: client.id, peers, max: LIMITS.maxPerRoom, ...(race && { race: { r: race.r, ms: race.goAt - Date.now() } }) });
       broadcast(room, { t: 'join', id: client.id, app: client.app }, client);
       return;
     }
@@ -283,6 +332,7 @@ function onConnection(ws, room, ip) {
       case 'st':
         client.st = { x: msg.x, z: msg.z, ry: msg.ry, an: msg.an, y: msg.y };
         broadcast(room, { t: 'st', id: client.id, ...client.st }, client);
+        checkFinish(client);
         break;
       case 'emo':
         if (client.emoteBucket.take()) broadcast(room, { t: 'emo', id: client.id, e: msg.e }, client);
@@ -295,6 +345,9 @@ function onConnection(ws, room, ip) {
         client.app = msg.app;
         broadcast(room, { t: 'app', id: client.id, app: client.app }, client);
         break;
+      case 'race':
+        if (!races.has(room) && Date.now() >= (raceRests.get(room) || 0) && client.raceBucket.take()) startRace(room, client);
+        break;
     }
   });
 
@@ -305,7 +358,12 @@ function onConnection(ws, room, ip) {
     if (n <= 0) ipConnections.delete(ip);
     else ipConnections.set(ip, n);
     if (set.delete(client) && client.app) broadcast(room, { t: 'leave', id: client.id });
-    if (set.size === 0 && rooms.get(room) === set) rooms.delete(room);
+    if (set.size === 0 && rooms.get(room) === set) {
+      rooms.delete(room);
+      clearTimeout(races.get(room)?.timer);
+      races.delete(room);
+      raceRests.delete(room);
+    }
   });
   ws.on('error', () => {});
   ws.__client = client;

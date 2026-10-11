@@ -88,24 +88,87 @@
   - Validation: `npm test` passes, including the new regressions, iPad-style touch flows, rendering budgets and server
     message validation; no console or page errors. Focused storage checks also preserve the Menu Master badge at the cap.
 
+- [x] **Phase 3 of `ideas-v2.md` (Oct 10 2026)** — seven features, no new restaurants
+  - **Race to a restaurant.** "Wanna race?" in the emote panel (the preset line that already existed) now starts a race. The
+    client sends a bare `{ t: 'race' }`; the server picks a door at least 18 units from every player, tells the whole room,
+    and names the winner from the positions it already relays (no false starts before GO, players inside a restaurant don't
+    count, 60 s time limit). One race per room at a time, and one start per player every 10 s (its own token bucket).
+    Everyone gets a big 3-2-1-GO, a banner with an arrow and the steps left, and a checkered flag over the door. The winner
+    gets confetti and a fanfare; the others are told who won. Nobody can walk during the countdown. Solo (offline) it races the clock.
+    `RING_RADIUS` moved to `schema.js` so the server can work out where the doors are without the 3D code (a test compares them).
+  - **Pet sidekick** (`pet.js`): puppy, kitten, dino or dragon, picked in a new closet tab. `pet` is a preset enum in the
+    appearance, so it syncs through the existing validated `app` message; a page from before the update still connects. Each
+    device walks the pet itself (nothing extra on the network). It heels behind its reviewer, cheers when they dance or jump,
+    and sits by the table during a review. One draw call per pet plus a blob shadow (the dragon's wings are one more).
+  - **Scooter.** A 🛴 button next to Emote: 11.5 instead of 7 units a second, with a glide. New `scoot` value in `ANIMS`
+    (validated by the server like the others) so friends see the scooter and the kicking pose.
+  - **Hidden ingredient hunt** (`hunt.js`, `ingredients.js`): six of eight giant ingredients hide around town, two in the grass,
+    two between buildings and two behind them. Walk into one to collect it. All six cook a silly recipe sticker named from
+    preset words, then a new hunt starts in new places. The layout comes from the hunt number alone, so a reload hides them
+    in the same places. Personal: saved in `localStorage` (`t42.quests`), never sent. A 🔍 button shows the count and opens the
+    hunt page with picture hints. The very first ingredient is in plain sight by the path to Sakura Sushi.
+  - **Reviewer missions** (`missions.js`): 12 picture missions, three at a time, ticked off by saving reviews. Foods that would
+    move a mission along get a 🎯 on the menu. Finished missions are cheered in the plaza (toast and confetti, no pop-up to
+    dismiss) and add up to a rank. Foods are tagged crunchy / sweet / drink / cheesy / noodles in `FOOD_TAGS`.
+  - **Comic camera.** Comic words burst onto the viewfinder for bites (CRUNCH! for crunchy food, SLURP! for drinks and noodles),
+    food reactions and emotes. Two new buttons pick one of 6 preset frames and 7 preset show titles; the choice is remembered and
+    saved with each review (`frame`, `title`), and shown in the scrapbook. All DOM and CSS, nothing in the 3D scene.
+  - **Plaza dance party** (`dance.js`): a dance floor by the fountain. One picture prompt at a time with a closing ring; tap the
+    matching move on the beat (12 prompts, synthesized beat). Each hit is an ordinary emote, so friends see it. Prompts are
+    1.2 s apart, inside the server's emote limit of 1.5 a second (`EMOTE_LIMIT` is now shared by the server and the dance).
+    Score, stars and best score are personal.
+  - **Fewer draw calls.** The town's plain colors are now baked into one vertex-colored mesh (`mergeStatic(..., { bake: true })`).
+    Two-player test view: 152 → 89 draw calls (93k triangles). Looking across the whole town from the edge: 158–172 → about 85.
+    The new props reuse the same trick (`bakeColored`): one draw call each for a pet, the scooter, an ingredient, the race flag.
+    Food models are baked the same way (at most 3 draw calls each, was 11) and the restaurant interior is merged per
+    material: the sushi belt view went from 129 to 92 draw calls.
+  - Fixed along the way: scrapbook pages on the Reviews tab were squashed to their headers since the town grew to 20
+    restaurants, so the review lines could not be read. The grid now keeps each page's height and scrolls.
+  - The prize card (`#screen-reward`) is shared: badge → hat, silly recipe, dance score.
+  - `npm test` extended (about 90 new checks, 212 in all): scooter speed and sync, pets, the full race on both pages, the
+    whole hunt, mission rules and pages, 🎯 tags, comic words / frames / titles, a full dance round with every emote relayed,
+    the "everything on" draw-call budget (now 120, was 160), and raw-socket checks for pets, `scoot` and the race rules.
+
+- [x] **Phase 3 reviewer pass (Oct 10 2026)** — kid-safety-reviewer found no kid-safety, brand, tap-target or rendering-rule
+  problems. It did find gaps in the race rules and a few bugs, all fixed:
+  - A modified page could report being at the door the instant GO sounded. The server now remembers how far each racer has
+    to run and ignores a finish that comes sooner than a scooter could cover it (`RACE.topSpeed`).
+  - The race rate limit was per connection only, so reconnecting skipped it. There is now also a 6 s rest per town after every race.
+  - Someone who joined (or reconnected) mid-race was judged but saw no race. The `welcome` message now carries the race
+    (door and time to GO) and the page joins in.
+  - Quest progress (hunt, missions, best dance score) could be undone by a tab opened earlier, the same kind of bug fixed for
+    reviews before. Changes now fold in what is in storage first (`mergeQuests`).
+  - A hand-edited mission id such as "constructor" got through the load check and froze the game on a white screen. The check
+    uses a `Map` now, and a fade can no longer stay white if something goes wrong inside it.
+  - A prize card could pop up in the middle of a race. It waits for the race to end.
+  - 🧃 (too new for old iPads) showed up in a mission's picture hints; Apple Juice is 🍏 now.
+  - Tests added for each of these.
+
 ## Next (ideas-v2.md)
-- Phase 3: race to a restaurant, pets, scooter, ingredient hunt
 - Phase 4: build-your-own pizza/sundae, friend as co-host
 - Older ideas: background music toggle, pinch-to-zoom camera
 
 ## Known issues
 - Emoji rendering depends on the device font (perfect on iPad; boxes in some headless Linux browsers).
 - Free Render instances sleep when idle; first connection can take ~30 s.
-- New menu emoji are kept to Unicode 11 or older. A few older ones are newer than that (🧃 juice, 🩳 shorts,
+- New menu emoji are kept to Unicode 11 or older. A few older ones in the closet are newer than that (🩳 shorts,
   🩴 sandals) and may show as boxes on iPads stuck on iOS 13 or earlier.
-- The town is a longer walk now (about 5 s from the fountain to a door); the scooter is planned for Phase 3.
+- In portrait on an iPad the top-right buttons overlap "My Reviews" (this predates Phase 3). The 🔍 and 🎯 buttons below
+  it also open the scrapbook. Landscape is fine.
+- A race is judged by the server from positions the players report, like everything else players see of each other. The
+  server rules out choosing the door, false starts, and arriving sooner than a scooter could (it remembers how far each
+  racer had to go). A tinkerer could still report being at the door the moment that becomes believable.
+- A page left open from before this update does not know the `scoot` move, so a friend on a scooter stands still on it
+  until it is reloaded. From now on an unknown move is shown as walking instead.
+- The sushi belt view draws about 75k triangles (the eight food models on the plates are detailed); other restaurants about 14k.
+- Each device decides for itself where a friend's pet walks, so two screens can show it a step apart.
+- The dance party's beat is not synced between friends: each child plays their own round.
 - The ring is full at 20 buildings: a 21st would need a bigger `RING_RADIUS` (the footprint test will say so).
 - Hats are only checked on the player's own device (badges come from reviews in localStorage); the server just checks the
   enum. A tinkerer could wear a crown early, which is harmless.
 - Software-rendered test runs are several times slower than an iPad, so the playground checks use long timeouts.
-- Draw calls in the two-player test view (152) are close to the 160 budget, and the test only measures that view. Standing
-  at the town edge looking across all 20 buildings draws 158–172 with one player. Each static color is one merged mesh;
-  if this ever needs to come down a lot, merge the whole town into one vertex-colored mesh.
+- The town is one big mesh now, so all of it is drawn every frame (about 87k triangles) even when most is off screen.
+  That is well within an iPad's reach and saves about 70 draw calls, which were the scarcer thing.
 - 🟢 🟡 in the online chip (Unicode 12) and 🤌 on the Chef's kiss emote (Unicode 13) are newer than the Unicode 11 rule
   for menus; they predate Phase 2 and may show as boxes on iPads stuck on old iOS.
 - Scrapbook lines show the food name, emoji and mood exactly as saved on this device (length-capped, inserted as text).

@@ -3,13 +3,12 @@
 // Everything is laid out from RESTAURANTS.length, so adding a restaurant is data-only.
 import * as THREE from '../vendor/three.module.js';
 import { RESTAURANTS } from './data.js';
-import { mat, signTexture, starsCanvas, checkerTexture, stripeTexture, clamp, mergeStatic } from './util.js';
+import { RING_RADIUS, ringAngle } from './schema.js';
+import { mat, signTexture, starsCanvas, checkerTexture, stripeTexture, clamp, mergeStatic, bakeColored, bakedMaterial } from './util.js';
 
-export const RING_RADIUS = 42; // room for 20 buildings (each 8–11 wide)
+export { RING_RADIUS }; // lives in schema.js: the server needs it to judge races
 export const WORLD_RADIUS = 51; // walkable edge; must stay under WORLD_LIMIT (schema.js)
 const PLAZA_RADIUS = 16;
-/** Angle of ring slot `i` (fractions sit between buildings). Slot 0 is straight ahead of the spawn point. */
-const ringAngle = (i) => (i / RESTAURANTS.length) * Math.PI * 2 + Math.PI;
 export const INTERIOR_ORIGIN = new THREE.Vector3(0, 0, 400);
 
 // --------------------------------------------------------------------- helpers
@@ -868,6 +867,48 @@ export function buildWorld(scene) {
     glow.scale.setScalar(1.15 + Math.sin(t * 8) * 0.08);
   });
 
+  // dance floor: a round stage in the plaza, to the right of the fountain from the spawn point.
+  // Its colors are ones the town already uses, so it merges into the scenery for free.
+  const danceA = ringAngle(N * 0.75);
+  const dance = { x: Math.sin(danceA) * 9.3, z: Math.cos(danceA) * 9.3, r: 2.3 };
+  const TILES = ['#ff8fc7', '#5ec8ff', '#ffd23f', '#7ae582'];
+  for (let i = 0; i < 8; i++) {
+    add(staticRoot, new THREE.CircleGeometry(dance.r, 4, (i / 8) * Math.PI * 2, Math.PI / 4), TILES[i % 4], dance.x, 0.045, dance.z, -Math.PI / 2);
+  }
+  add(staticRoot, new THREE.RingGeometry(dance.r, dance.r + 0.28, 32), '#9b5de5', dance.x, 0.047, dance.z, -Math.PI / 2);
+  // two speakers and a mirror ball on the far side
+  const stage = new THREE.Group();
+  stage.position.set(Math.sin(danceA) * 12.35, 0, Math.cos(danceA) * 12.35);
+  stage.rotation.y = danceA + Math.PI; // +z looks back at the fountain
+  for (const x of [-1.5, 1.5]) {
+    add(stage, box(0.9, 1.5, 0.7), '#5b4b8a', x, 0.75, 0);
+    add(stage, new THREE.CircleGeometry(0.3, 14), '#ffd23f', x, 1.0, 0.36);
+    add(stage, new THREE.CircleGeometry(0.16, 12), '#ff8fc7', x, 0.42, 0.36);
+    colliders.push({ type: 'circle', x: stage.position.x + x * Math.cos(stage.rotation.y), z: stage.position.z - x * Math.sin(stage.rotation.y), r: 0.6 });
+  }
+  add(stage, cyl(0.07, 0.1, 3.3, 8), '#5b4b8a', 0, 1.65, 0);
+  add(stage, box(0.9, 0.08, 0.08), '#5b4b8a', 0, 3.3, 0.4, 0, Math.PI / 2, 0);
+  add(stage, sphere(0.42, 10, 8), '#d7ecff', 0, 2.85, 0.8);
+  add(stage, cyl(0.02, 0.02, 0.3, 4), '#5b4b8a', 0, 3.3, 0.8);
+  staticRoot.add(stage);
+  colliders.push({ type: 'circle', x: stage.position.x, z: stage.position.z, r: 0.35 });
+
+  // race flag: a checkered flag and a bobbing arrow over the door everyone is racing to (one draw call)
+  const flagParts = new THREE.Group();
+  add(flagParts, cyl(0.08, 0.1, 7, 8), '#c9cfd6', 0, 3.5, 0);
+  add(flagParts, sphere(0.18, 8, 6), '#ffd23f', 0, 7.1, 0);
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) add(flagParts, box(0.5, 0.5, 0.08), (i + j) % 2 ? '#ffffff' : '#2a1a2e', 0.33 + i * 0.5, 6.7 - j * 0.5, 0);
+  add(flagParts, cone(0.7, 1.2, 4), '#ffd23f', -1.4, 4.4, 0, Math.PI, 0, 0);
+  add(flagParts, box(0.5, 1.0, 0.5), '#ffd23f', -1.4, 5.5, 0, 0, Math.PI / 4, 0);
+  const flag = new THREE.Mesh(bakeColored(flagParts), bakedMaterial());
+  flag.visible = false;
+  scene.add(flag);
+  animated.push((t) => {
+    if (!flag.visible) return;
+    flag.position.y = 0.3 + Math.abs(Math.sin(t * 4)) * 0.5;
+    flag.rotation.y = t * 1.5;
+  });
+
   // trees between restaurants and around the edge
   let k = 0;
   for (let i = 0; i < N; i++) {
@@ -911,7 +952,7 @@ export function buildWorld(scene) {
     clouds.rotation.y = t * 0.01;
   });
 
-  mergeStatic(staticRoot);
+  mergeStatic(staticRoot, { bake: true });
 
   const interior = buildInterior(scene);
 
@@ -921,6 +962,12 @@ export function buildWorld(scene) {
     interior,
     slide,
     pads,
+    dance,
+    /** Plant the race flag at a door ({ x, z }), or take it down (null). */
+    setFlag(spot) {
+      flag.visible = !!spot;
+      if (spot) flag.position.set(spot.x, 0.3, spot.z);
+    },
     /** The bounce pad under (x, z), if any. `slack` widens it (friends' positions arrive a little late). */
     padAt(x, z, slack = 0) {
       for (const pad of pads) if (Math.hypot(x - pad.x, z - pad.z) < pad.r + slack) return pad;
@@ -1061,6 +1108,9 @@ function buildInterior(scene) {
   add(g, box(0.2, 0.02, 0.3), '#8fd3ff', -1.15, 0.83, 0.25);
   add(g, cyl(0.08, 0.06, 0.22, 12), '#ffffff', 1.22, 0.93, -0.1);
   add(g, cyl(0.07, 0.07, 0.25, 10), trimMat, 0.05, 0.95, -0.3);
+
+  // one mesh per material (the wall and trim materials are re-colored for each restaurant, so they are not baked)
+  mergeStatic(g);
 
   return {
     group: g,
