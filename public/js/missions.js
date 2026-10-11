@@ -64,12 +64,20 @@ const advances = (def, slot, ev) => counts(def, ev) && !(def.each && slot.seen.i
  */
 export function applyReview(old, ev) {
   const state = { ...old, active: old.active.map((a) => ({ ...a, seen: [...a.seen] })) };
-  const completed = [];
-  state.active.forEach((slot, i) => {
+  state.active.forEach((slot) => {
     const def = BY_ID.get(slot.id);
     if (!advances(def, slot, ev)) return;
     slot.have++;
     if (def.each) slot.seen.push(ev[def.each]);
+  });
+  return finishMissions(state);
+}
+
+/** Finish and replace any slots whose progress has reached the goal. */
+function finishMissions(state) {
+  const completed = [];
+  state.active.forEach((slot, i) => {
+    const def = BY_ID.get(slot.id);
     if (slot.have < def.need) return;
     completed.push(def);
     state.done++;
@@ -84,6 +92,22 @@ export function applyReview(old, ev) {
     return fresh;
   }).filter(Boolean);
   return { state, completed };
+}
+
+/** Fold in another tab's progress without erasing unfinished missions or counting shared reviews twice. */
+export function mergeMissions(session, saved) {
+  const base = session.done > saved.done ? session : saved;
+  const state = { ...base, active: base.active.map((a) => ({ ...a, seen: [...a.seen] })) };
+  // Different rounds may reuse a mission id: only pool progress from the same round.
+  if (session.done !== saved.done || session.next !== saved.next) return state;
+  for (const slot of state.active) {
+    const other = session.active.find((a) => a.id === slot.id);
+    if (!other) continue;
+    const def = BY_ID.get(slot.id);
+    slot.seen = [...new Set([...slot.seen, ...other.seen])];
+    slot.have = def.each ? slot.seen.length : Math.max(slot.have, other.have);
+  }
+  return finishMissions(state).state;
 }
 
 /** Would reviewing this food move an active mission along? (for the 🎯 tags on the menu) */

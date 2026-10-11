@@ -195,7 +195,7 @@ const newId = () => crypto.randomBytes(6).toString('base64url');
 // One race per room at a time. The server picks the door and judges the finish from the
 // (already clamped) positions players send, so a client can neither choose the door nor
 // simply claim a win: it has to report being there, after GO, and no sooner than a run takes.
-const races = new Map(); // room code -> { r, spot, goAt, from, timer }
+const races = new Map(); // room code -> { r, spot, goAt, from, joined, timer }
 const raceRests = new Map(); // room code -> when the next race may start (a short rest after each one)
 const SPAWN = { x: 0, z: 7 };
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -207,7 +207,7 @@ function startRace(room, starter) {
   const r = pickRaceTarget(racers.map((c) => c.st || SPAWN));
   const spot = raceDoorSpot(r);
   // `from`: how far each racer has to run, so nobody can win faster than that takes
-  const race = { r, spot, goAt: Date.now() + RACE.countdown * 1000, from: new Map(racers.map((c) => [c, distance(c.st || SPAWN, spot)])) };
+  const race = { r, spot, goAt: Date.now() + RACE.countdown * 1000, from: new Map(racers.map((c) => [c, distance(c.st || SPAWN, spot)])), joined: new Map() };
   race.timer = setTimeout(() => endRace(room, null), (RACE.countdown + RACE.timeout) * 1000);
   race.timer.unref();
   races.set(room, race);
@@ -227,7 +227,7 @@ function endRace(room, winner) {
 function checkFinish(client) {
   const race = races.get(client.room);
   if (!race || client.st.an === 'review') return; // no race on, or inside a restaurant
-  const sinceGo = (Date.now() - race.goAt) / 1000;
+  const sinceGo = (Date.now() - Math.max(race.goAt, race.joined.get(client) || race.goAt)) / 1000;
   if (sinceGo < 0 || distance(client.st, race.spot) >= RACE.reach) return; // a false start, or not there yet
   // someone who joined after the start set off from the spawn point
   const run = (race.from.get(client) ?? distance(SPAWN, race.spot)) - RACE.reach;
@@ -322,6 +322,7 @@ function onConnection(ws, room, ip) {
       clearTimeout(helloTimer);
       const peers = [...set].filter((c) => c !== client && c.app).map((c) => ({ id: c.id, app: c.app, st: c.st }));
       const race = races.get(room); // a race already under way: the newcomer joins it
+      if (race) race.joined.set(client, Date.now()); // no credit for time before this racer arrived
       sendJson(ws, { t: 'welcome', id: client.id, peers, max: LIMITS.maxPerRoom, ...(race && { race: { r: race.r, ms: race.goAt - Date.now() } }) });
       broadcast(room, { t: 'join', id: client.id, app: client.app }, client);
       return;
@@ -358,6 +359,8 @@ function onConnection(ws, room, ip) {
     if (n <= 0) ipConnections.delete(ip);
     else ipConnections.set(ip, n);
     if (set.delete(client) && client.app) broadcast(room, { t: 'leave', id: client.id });
+    races.get(room)?.from.delete(client);
+    races.get(room)?.joined.delete(client);
     if (set.size === 0 && rooms.get(room) === set) {
       rooms.delete(room);
       clearTimeout(races.get(room)?.timer);

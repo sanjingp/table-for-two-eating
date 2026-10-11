@@ -2,7 +2,7 @@
 import { repairAppearance, RESTAURANT_IDS, DEFAULT_APPEARANCE } from './schema.js';
 import { RESTAURANT_BY_ID, VF_FRAMES, VF_TITLES } from './data.js';
 import { repairHunt } from './hunt.js';
-import { repairMissions } from './missions.js';
+import { repairMissions, mergeMissions } from './missions.js';
 
 const KEYS = { app: 't42.appearance', reviews: 't42.reviews', settings: 't42.settings', quests: 't42.quests' };
 const MAX_REVIEWS = 300;
@@ -122,7 +122,8 @@ export const saveQuests = (q) => write(KEYS.quests, q);
 /**
  * Another open tab may have saved quests since this one loaded. Returns this session's quests
  * with that folded in, so a save never undoes it: the further-along hunt wins (the same hunt pools
- * its finds), as do the missions with more finished and the better dance score.
+ * its finds), as do the missions with more finished and the better dance score. Unfinished
+ * missions from the same round pool their distinct foods/restaurants and keep the larger count.
  */
 export function mergeQuests(session) {
   const saved = loadQuests();
@@ -130,7 +131,7 @@ export function mergeQuests(session) {
   if (saved.hunt.n === session.hunt.n) hunt = repairHunt({ n: hunt.n, found: [...saved.hunt.found, ...session.hunt.found] });
   return {
     hunt,
-    missions: saved.missions.done > session.missions.done ? saved.missions : session.missions,
+    missions: mergeMissions(session.missions, saved.missions),
     dance: { best: Math.max(saved.dance.best, session.dance.best) },
   };
 }

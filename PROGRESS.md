@@ -144,6 +144,21 @@
   - 🧃 (too new for old iPads) showed up in a mission's picture hints; Apple Juice is 🍏 now.
   - Tests added for each of these.
 
+- [x] **Phase 3 follow-up bug review (Oct 10 2026)**
+  - Fixed: the countdown ignored new movement input but let existing walking/scooter momentum glide forward.
+    It now clears horizontal velocity while counting down, including when a friend starts the race.
+  - Fixed: a player joining after GO could use the race's earlier elapsed time to claim a win immediately.
+    The server measures that player's possible run from the later of GO and their arrival, and drops their race
+    references on disconnect.
+  - Fixed: stale tabs erased partial mission progress when the completed totals tied. Saves now pool distinct
+    restaurants/foods for the same mission round, retain other partial counts, and replace missions completed by a merge.
+  - Fixed: a stale tab counted a food reviewed in another tab as never tried. Ratings now check the stored history
+    as well as the session history before deciding whether the food advances a new-food mission.
+  - Regression checks cover all four fixes, including merged mission completion, deduplication and reloads.
+  - Validation: `npm test` passes, including the new regressions, iPad-style touch flows, rendering budgets and server
+    message validation; no console or page errors. Focused mission checks and a raw-socket comparison also reproduced
+    the original mission loss and late-join win, and verified their fixes.
+
 ## Next (ideas-v2.md)
 - Phase 4: build-your-own pizza/sundae, friend as co-host
 - Older ideas: background music toggle, pinch-to-zoom camera

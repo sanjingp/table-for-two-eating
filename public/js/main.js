@@ -393,7 +393,9 @@ function updatePlaza(dt) {
   S.camYaw -= look.x * 0.006;
   S.camPitch = clamp(S.camPitch + look.y * 0.003, 0.15, 0.95);
 
-  const inp = S.race?.state === 'count' ? STILL : controls.move2; // on your marks: nobody moves before GO
+  const counting = S.race?.state === 'count';
+  const inp = counting ? STILL : controls.move2; // on your marks: nobody moves before GO
+  if (counting) S.vel.set(0, 0, 0); // stop existing walking/scooter momentum too
   fwd.set(-Math.sin(S.camYaw), 0, -Math.cos(S.camYaw));
   right.set(Math.cos(S.camYaw), 0, -Math.sin(S.camYaw));
   move.copy(right).multiplyScalar(inp.x).addScaledVector(fwd, inp.y);
@@ -1055,7 +1057,8 @@ $('#btn-review-done').addEventListener('click', () => {
 function saveRating(stars, mood) {
   const r = S.restaurant;
   const before = S.progress;
-  const isNew = !S.reviews.some((rv) => rv.rid === r.id && rv.fid === S.item.id);
+  const tried = (rv) => rv.rid === r.id && rv.fid === S.item.id;
+  const isNew = !S.reviews.some(tried) && !loadReviews().some(tried);
   S.reviews = addReview(S.reviews, {
     rid: r.id, fid: S.item.id, food: S.item.name, emoji: S.item.emoji, mood, stars, ts: Date.now(),
     frame: S.settings.frame, title: S.settings.title, // the comic camera look it was filmed with

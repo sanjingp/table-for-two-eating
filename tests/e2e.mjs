@@ -199,6 +199,13 @@ async function serverChecks(port) {
   check(!c.msgs.some((m) => m.t === 'win'), 'being off the map, inside a restaurant, or at the door sooner than anyone could run there does not win');
   const run = Math.hypot(spot.x, spot.z - 7) - RACE.reach; // how far d (who set off from 0, 7) has to go
   await until((run / RACE.topSpeed) * 1000 + 150);
+  const newcomer = await open('race-check-1');
+  newcomer.send(JSON.stringify({ t: 'hello', app }));
+  await sleep(100);
+  at(newcomer, spot.x, spot.z);
+  await sleep(200);
+  check(!c.msgs.some((m) => m.t === 'win'), 'joining after GO cannot use earlier race time to claim an immediate win');
+  newcomer.close();
   at(d, spot.x + 1, spot.z - 1);
   await sleep(300);
   const win = c.msgs.find((m) => m.t === 'win');
@@ -686,9 +693,21 @@ async function main() {
     check(new Set(picks).size > 5 && picks.every((rid) => racers.every((p) => Math.hypot(p.x - raceDoorSpot(rid).x, p.z - raceDoorSpot(rid).z) >= RACE.headStart)),
       `a race picks one of ${new Set(picks).size} doors, never one a racer is already close to`);
     await teleport(A, 0, 12, 0);
+    await A.locator('#btn-scooter').tap();
     await A.locator('#btn-emote').tap();
     const raceBtn = A.locator(`.say-btn[data-line="${RACE_LINE}"]`);
     check(LINES[RACE_LINE] === 'Wanna race?' && (await raceBtn.textContent()).includes('Wanna race?') && await raceBtn.evaluate((b) => b.offsetHeight) >= 56, 'the "Wanna race?" preset is in the emote panel');
+    await A.keyboard.down('d');
+    check(await waitFor(A, () => window.__t42.speed() > 10), 'the race starts while the scooter is already moving');
+    await A.evaluate(() => {
+      window.__raceStart = null;
+      const until = performance.now() + 10000;
+      const watch = () => {
+        if (window.__t42.race()?.state === 'count') window.__raceStart = window.__t42.playerPosition();
+        else if (performance.now() < until) requestAnimationFrame(watch);
+      };
+      requestAnimationFrame(watch);
+    });
     await raceBtn.tap();
     check(await waitFor(A, () => window.__t42.race()?.state === 'count', null, 5000), 'saying "Wanna race?" starts a countdown');
     check(await waitFor(B, () => window.__t42.race() !== null, null, 5000), 'the friend is in the race too');
@@ -701,14 +720,16 @@ async function main() {
     }));
     check(countUi.countShown && ['3', '2', '1'].includes(countUi.count) && countUi.bannerShown && countUi.banner.includes(RESTAURANTS.find((r) => r.id === raceA.rid).name),
       `a big "${countUi.count}" counts down under a banner that names the restaurant`);
-    const line = await A.evaluate(() => window.__t42.playerPosition());
+    const line = await A.evaluate(() => window.__raceStart || window.__t42.playerPosition());
     await A.keyboard.down('w');
     await sleep(500);
     const jumped = await A.evaluate(() => window.__t42.playerPosition());
-    check((await A.evaluate(() => window.__t42.race()?.state)) === 'count' && Math.hypot(jumped.x - line.x, jumped.z - line.z) < 0.2, 'nobody can run before GO');
+    check((await A.evaluate(() => window.__t42.race()?.state)) === 'count' && Math.hypot(jumped.x - line.x, jumped.z - line.z) < 0.2, 'the countdown stops existing scooter momentum and held movement');
+    await A.keyboard.up('d');
     check(await waitFor(A, () => window.__t42.race()?.state === 'go', null, 8000), 'GO!');
     check(await waitFor(A, (p) => Math.hypot(window.__t42.playerPosition().x - p.x, window.__t42.playerPosition().z - p.z) > 1, line, 10000), 'after GO the reviewer is off');
     await A.keyboard.up('w');
+    await A.locator('#btn-scooter').tap();
     const finish = town.list.find((r) => r.id === raceA.rid).door;
     await teleport(A, finish.x, finish.z);
     check(await waitFor(A, () => window.__t42.race() === null && window.__t42.lastRace()?.winner === 'me', null, 12000), 'first to the door wins the race (the server says so) 🏆');
@@ -829,6 +850,19 @@ async function main() {
     const pageFits = await A.locator('.book-page').first().evaluate((pg) => pg.querySelector('li').getBoundingClientRect().bottom <= pg.getBoundingClientRect().bottom + 1);
     check(pageFits, 'scrapbook pages are tall enough to read their reviews');
     await A.locator('#book-close').tap();
+    // A different tab saved a food this session has not seen yet. It is already tried.
+    const beforeNew = await A.evaluate(async () => {
+      const { loadReviews, addReview } = await import('/js/storage.js');
+      const { RESTAURANT_BY_ID } = await import('/js/data.js');
+      const item = RESTAURANT_BY_ID.slice.menu[0];
+      addReview(loadReviews(), { rid: 'slice', fid: item.id, food: item.name, emoji: item.emoji, mood: '😋', stars: 4, ts: Date.now() });
+      return window.__t42.missions().active.find((m) => m.id === 'new')?.have;
+    });
+    await goIn('slice');
+    await A.locator('.menu-item').first().tap();
+    await rateAndLeave(4);
+    check(beforeNew !== undefined && (await A.evaluate(() => window.__t42.missions().active.find((m) => m.id === 'new')?.have)) === beforeNew,
+      'a food reviewed in another tab does not count as new when a stale tab rates it');
     const junk = await B.evaluate(async () => {
       const { loadReviews, loadSettings, loadQuests } = await import('/js/storage.js');
       localStorage.setItem('t42.reviews', JSON.stringify([{ rid: 'jj', food: 'Giant Cookie', stars: 4, ts: 1, frame: '<img>', title: 99 }]));
@@ -862,6 +896,35 @@ async function main() {
       }
     });
     check(tabs.pooled === 2 && tabs.n === 1 && tabs.found === 0 && tabs.done === 2 && tabs.best === 9, 'a tab opened earlier never undoes quest progress saved by another tab');
+    const partial = await B.evaluate(async () => {
+      const { loadQuests, saveQuests, mergeQuests } = await import('/js/storage.js');
+      const { applyReview } = await import('/js/missions.js');
+      const event = (rid) => ({ rid, fid: 'edamame', stars: 3 });
+      try {
+        const stale = loadQuests();
+        const latest = loadQuests();
+        latest.missions = applyReview(latest.missions, event('sakura')).state;
+        saveQuests(latest);
+        const kept = mergeQuests(stale).missions.active.find((m) => m.id === 'three').have;
+        stale.missions = applyReview(stale.missions, event('jj')).state;
+        const pooled = mergeQuests(stale);
+        saveQuests(pooled);
+        const unique = mergeQuests(pooled).missions.active.find((m) => m.id === 'three');
+        const independent = loadQuests();
+        independent.missions = applyReview(stale.missions, event('slice')).state;
+        const finished = mergeQuests(independent);
+        saveQuests(finished);
+        const restored = loadQuests().missions;
+        return { kept, have: unique.have, seen: unique.seen, done: restored.done, active: restored.active.map((m) => m.id),
+          staleHave: stale.missions.active.find((m) => m.id === 'three').have };
+      } finally {
+        localStorage.removeItem('t42.quests');
+      }
+    });
+    check(partial.kept === 1 && partial.have === 2 && partial.seen.length === 2 && partial.staleHave === 1,
+      'quest merges retain partial mission progress, pool distinct restaurants and count shared progress once');
+    check(partial.done === 1 && partial.active.length === 3 && !partial.active.includes('three'),
+      'pooled mission progress finishes at its goal, deals a replacement and survives a reload');
     const strangeMove = await B.evaluate(async () => {
       const { Net } = await import('/js/net.js');
       const net = new Net('some-room', {});
