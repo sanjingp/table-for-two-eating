@@ -427,6 +427,25 @@ async function serverChecks(port) {
   await sleep(Math.max(0, yesAt + TABLE.seatTtl * 1000 + 700 - Date.now()));
   check(co(w1, 'cojoin').length === 1 && co(w1, 'coend').length === 1 && co(w2, 'coend').length === 1 && co(w2, 'coend')[0].s === co(w1, 'cojoin')[0].s,
     `a friend who says yes but never sits down gives the chair back after ${TABLE.seatTtl} s`);
+  // Reporting "review" elsewhere must not keep a chair at this restaurant.
+  say(w1, { t: 'coinv', to: idOf(w2), r: 'curry' });
+  await sleep(150);
+  const wrongSeat = co(w2, 'coinv').pop()?.s;
+  say(w2, { t: 'coans', s: wrongSeat, a: 'yes' });
+  inside(w2, 'jj');
+  await sleep(150);
+  check(wrongSeat !== co(w1, 'cojoin')[0].s && co(w1, 'coend').some((m) => m.s === wrongSeat), 'a co-host filming at another restaurant cannot occupy the invited table');
+  say(w2, { t: 'st', x: 0, z: 7, ry: 0, an: 'idle' });
+  await sleep(100);
+  say(w1, { t: 'coinv', to: idOf(w2), r: 'curry' });
+  await sleep(150);
+  const movedHost = co(w2, 'coinv').pop()?.s;
+  say(w2, { t: 'coans', s: movedHost, a: 'yes' });
+  inside(w2, 'curry');
+  await sleep(100);
+  inside(w1, 'jj');
+  await sleep(150);
+  check(movedHost !== wrongSeat && co(w2, 'coend').some((m) => m.s === movedHost), 'moving away ends a host\'s table even if they keep reporting "review"');
   w1.close();
   w2.close();
 
@@ -1505,6 +1524,94 @@ async function main() {
     }
     check(await waitFor(B, () => window.__t42.netStatus() === 'online' && window.__t42.remotePlayerCount() === 1, null, 15000) && await waitFor(A, () => window.__t42.remotePlayerCount() === 1, null, 15000)
       && (await B.evaluate(() => window.__t42.mode())) === 'plaza' && (await table(B)).co === null, 'and everyone sees each other again');
+
+    console.log('\n⏳ Co-host timing regressions');
+    await goIn('jj');
+    await A.evaluate(async () => {
+      const { Net } = await import('/js/net.js');
+      const send = Net.prototype.send;
+      Net.prototype.send = function (...args) {
+        Net.prototype.send = send;
+        window.__reviewNet = this;
+        this.ws.close();
+      };
+    });
+    check(await waitFor(A, () => window.__t42.netStatus() === 'offline', null, 6000), 'the host loses the connection while the menu is open');
+    check(await waitFor(A, () => window.__t42.netStatus() === 'online' && window.__t42.remotePlayerCount() === 1, null, 10000)
+      && await A.locator('#order-cohost').isVisible(), 'reconnecting restores the invite button for friends already in town');
+
+    // Delay the first reply past the local timeout, then deliver both replies in server order.
+    await A.evaluate(async (timeoutMs) => {
+      const { Net } = await import('/js/net.js');
+      const handle = Net.prototype.handle;
+      const timeout = window.setTimeout;
+      window.__coReplies = [];
+      Net.prototype.handle = function (m) {
+        if (this === window.__reviewNet && ((m.t === 'coinv' && m.to) || (m.t === 'cono' && !m.s))) window.__coReplies.push(m);
+        else handle.call(this, m);
+      };
+      window.setTimeout = (fn, ms, ...args) => {
+        if (ms === timeoutMs) window.__expireAsk = () => fn(...args);
+        return timeout(fn, ms, ...args);
+      };
+      window.__flushCoReplies = () => {
+        Net.prototype.handle = handle;
+        window.setTimeout = timeout;
+        window.__coReplies.forEach((m) => handle.call(window.__reviewNet, m));
+      };
+    }, (TABLE.inviteTtl + 5) * 1000);
+    await invite();
+    await waitFor(A, () => window.__coReplies.length === 1, null, 6000);
+    await A.evaluate(() => window.__expireAsk());
+    await invite();
+    await waitFor(A, () => window.__coReplies.length === 2, null, 6000);
+    await A.evaluate(() => window.__flushCoReplies());
+    check(await waitFor(A, () => window.__t42.table().asking === null, null, 6000)
+      && await waitFor(B, () => window.__t42.table().invite === null, null, 6000), 'a late invite reply cancels its expired ask without being assigned to the next ask');
+    await A.locator('#order-leave').tap();
+    await waitFor(A, () => window.__t42.mode() === 'plaza', null, 8000);
+
+    // Hold the guest's entry fade until all three host messages have arrived.
+    await goIn('slice', 'order', B);
+    await invite(B);
+    await waitFor(A, () => window.__t42.table().invite !== null, null, 6000);
+    await A.evaluate(async () => {
+      const { Net } = await import('/js/net.js');
+      const handle = Net.prototype.handle;
+      const timeout = window.setTimeout;
+      window.__entryEvents = [];
+      Net.prototype.handle = function (m) {
+        if (this === window.__reviewNet && ['cofood', 'cobite', 'codone'].includes(m.t)) window.__entryEvents.push(m.t);
+        handle.call(this, m);
+      };
+      window.setTimeout = (fn, ms, ...args) => {
+        if (ms !== 360) return timeout(fn, ms, ...args);
+        window.setTimeout = timeout;
+        const timer = timeout(() => {}, 60000);
+        window.__finishEntry = () => {
+          clearTimeout(timer);
+          Net.prototype.handle = handle;
+          fn(...args);
+        };
+        return timer;
+      };
+    });
+    await A.locator('#co-invite-yes').tap();
+    await waitFor(B, () => window.__t42.table().co !== null, null, 6000);
+    await waitFor(A, () => !!window.__finishEntry, null, 6000);
+    await B.evaluate(() => {
+      document.querySelector('.menu-item').click();
+      document.querySelector('.rv-emote.bite').click();
+      document.querySelector('#btn-review-done').click();
+      document.querySelectorAll('.star-btn')[4].click();
+      document.querySelector('#rate-save').click();
+    });
+    check(await waitFor(A, () => window.__entryEvents.length === 3 && window.__t42.mode() === 'transition', null, 6000), 'the host serves, bites and rates before the guest finishes entering');
+    await A.evaluate(() => window.__finishEntry());
+    check(await waitFor(A, () => window.__t42.mode() === 'review' && window.__t42.table().co?.stars === 5, null, 6000), 'the entering guest receives the host\'s earlier rating');
+    check(await waitFor(A, () => Math.abs(window.__t42.table().theirs - 0.78) < 0.001 && window.__t42.table().mine === 1, null, 10000), 'the earlier bite empties only the host\'s plate and survives the food arrival animation');
+    await rateAndLeave(4);
+    await waitFor(B, () => window.__t42.mode() === 'plaza', null, 10000);
 
     console.log('\n📱 Still light for iPad');
     await A.locator('#btn-scooter').tap();

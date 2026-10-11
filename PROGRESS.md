@@ -214,6 +214,20 @@
   - A friend's bite that was waiting its turn could go on eating the grown-up's food after the friend left. It is dropped now.
   - Also added: a friend who says yes but never sits down gives the chair back after 10 s.
 
+- [x] **Phase 4 follow-up bug review (Oct 10 2026)**
+  - Fixed: reconnecting while the menu was open kept the co-host invite button hidden when friends were already in town.
+    The welcome message now refreshes the buttons after restoring those friends.
+  - Fixed: a host's bites and stars could arrive while the friend was still entering, and were discarded. They now wait
+    with the food choice until the friend sits down. The food arrival animation also preserves any early bites.
+  - Fixed: an invite timing out locally could remove its pending reply from the queue, so a late reply was assigned to the
+    next invite. Expired asks stay in order and cancel their server session when its id arrives.
+  - Fixed: reporting `review` anywhere in town kept a table occupied. The server now checks both players stay at the
+    invited restaurant, including the co-host's first seated state.
+  - Added regression checks for reconnecting, delayed invite replies, events during entry, and restaurant position checks.
+  - Validation: `npm test` passes, including all new regressions, server message validation and iPad rendering budgets;
+    no console or page errors. Focused browser comparisons also reproduce the delayed invite and entry bugs in the
+    original commit and verify their fixes.
+
 ## Next (ideas-v2.md)
 - All four phases of `ideas-v2.md` are built.
 - Older ideas: background music toggle, pinch-to-zoom camera

@@ -285,6 +285,7 @@ const net = new Net(room, {
     for (const id of [...remotes.keys()]) removeRemote(id);
     peers.forEach(addRemote);
     updateNetChip();
+    refreshCohostUi();
     sendState(true);
     if (race) beginRace(race.r, { msToGo: race.ms }); // a race was already on: join in
   },
@@ -330,9 +331,7 @@ const net = new Net(room, {
   },
   onTableJoin: (sid, rid, seats) => (seats[0] === net.id ? friendJoined(sid, rid, seats[1]) : joinTable(sid, rid, seats[0])),
   onTableFood: (sid, food) => tableServed(sid, food),
-  onTableBite: (sid, id) => {
-    if (S.co?.sid === sid && S.co.id === id && remotes.has(id)) bite(remotes.get(id).char);
-  },
+  onTableBite: (sid, id) => tableBitten(sid, id),
   onTableDone: (sid, id, stars) => tableRated(sid, id, stars),
   onTableEnd: (sid) => tableEnded(sid),
   onSay: (id, l) => remotes.get(id)?.char.say(LINES[l]),
@@ -837,7 +836,11 @@ function enterRestaurant(r, table = null) {
       net.sendTableLeave(table.sid); // (in case the server still has us at that table)
       UI.toast('Your friend had to go. You pick the food! 🍽️', 3200);
     }
-    if (joining?.food) tableServed(joining.sid, joining.food); // the host had already chosen
+    if (joining?.food) {
+      tableServed(joining.sid, joining.food); // the host had already chosen
+      for (let n = 0; n < (joining.bites || 0); n++) tableBitten(joining.sid, joining.id);
+      if (joining.stars) tableRated(joining.sid, joining.id, joining.stars);
+    }
   });
 }
 
@@ -1183,6 +1186,7 @@ function bite(who) {
   later(() => {
     sfx.chomp();
     food.scale.multiplyScalar(0.78);
+    food.userData.bites++;
     if (isPlayer) {
       comic(biteKind(S.item));
       S.bites++;
@@ -1191,7 +1195,7 @@ function bite(who) {
         sfx.sparkle();
         UI.toast('All gone! 😋 Tap “Rate it!”');
       }
-    } else if (++food.userData.bites >= 3) food.visible = false; // the other plate empties after three bites too
+    } else if (food.userData.bites >= 3) food.visible = false; // the other plate empties after three bites too
   }, 420);
   later(() => {
     who.setHeldItem(null);
@@ -1456,7 +1460,9 @@ $('#cohost-close').addEventListener('click', () => {
 /** Invite `ask` did not work out. why: see TABLE_WHY. (An invite we already took back ends quietly.) */
 function askOver(ask, why) {
   clearTimeout(ask.timer);
-  S.coAsks = S.coAsks.filter((a) => a !== ask);
+  // Keep an unanswered ask in the reply queue: a late reply still belongs to it.
+  ask.cancelled = true;
+  if (why === 'timeout' && ask.sid) net.sendTableLeave(ask.sid);
   if (S.coAsk !== ask) return;
   S.coAsk = null;
   UI.show('#screen-cohost', false);
@@ -1573,7 +1579,19 @@ function tableServed(sid, food) {
   UI.toast(`${name} picked ${item.emoji} ${item.name}!`, 3200);
 }
 
+function tableBitten(sid, id) {
+  if (S.coJoining?.sid === sid && S.coJoining.id === id) {
+    S.coJoining.bites = Math.min(3, (S.coJoining.bites || 0) + 1);
+    return;
+  }
+  if (S.co?.sid === sid && S.co.id === id && remotes.has(id)) bite(remotes.get(id).char);
+}
+
 function tableRated(sid, id, stars) {
+  if (S.coJoining?.sid === sid && S.coJoining.id === id) {
+    S.coJoining.stars = stars;
+    return;
+  }
   if (S.co?.sid !== sid || S.co.id !== id) return;
   S.co.stars = stars;
   friendAtTable()?.char.playEmote(stars >= 3 ? 'wow' : 'thumbs');
@@ -1718,8 +1736,8 @@ function updateInterior(dt, t) {
     S.foodPop = Math.min(1, S.foodPop + dt * 2.5);
     const k = S.foodPop;
     const s = 1 + Math.sin(k * Math.PI) * 0.35;
-    S.food.scale.setScalar(k * s);
-    S.cohostFood?.scale.setScalar(k * s);
+    S.food.scale.setScalar(k * s * 0.78 ** S.food.userData.bites);
+    S.cohostFood?.scale.setScalar(k * s * 0.78 ** S.cohostFood.userData.bites);
   }
   if (S.mode === 'review') {
     const secs = Math.floor((performance.now() - S.recStart) / 1000);

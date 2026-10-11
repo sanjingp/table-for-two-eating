@@ -355,8 +355,10 @@ function endTable(table, leaver, why) {
 function checkTable(client) {
   const table = client.table;
   if (!table) return;
-  if (client.st.an === 'review') table.seated ||= table.guest === client;
-  else if (table.host === client || table.seated) endTable(table, client, 'gone');
+  if (client.st.an === 'review') {
+    if (distance(client.st, raceDoorSpot(table.r)) > TABLE.doorReach) return endTable(table, client, 'gone');
+    table.seated ||= table.guest === client;
+  } else if (table.host === client || table.seated) endTable(table, client, 'gone');
 }
 
 function broadcast(room, obj, exceptClient) {
